@@ -1,0 +1,56 @@
+>Computer
+    -Extention (VScode)
+    -Node JS (PC)
+
+>Confirm
+    -node –v
+    -npm –v
+
+>Project
+    **open folder
+    -New File server.js
+    -npm init -y
+    -npm i –g nodemon
+    -npm i express body-parser fs-extra formidable
+    -npm i cors
+
+    -New Folder instance
+        -New File instance.js
+        -set database,username,password,host,port
+    -New Folder model
+        -New File model.js
+        -design table name and column
+    -New Folder api
+        -New File api.js
+        -create get post
+
+    -New Folder constance
+        -New File constance.js
+
+
+    npm i bcryptjs
+
+** Note **    
+ catch (result) {
+       res.json({result}) };
+       res.json({result: result});
+ catch (error) {
+       res.json({error}) };
+       res.json({result: error});
+
+const = constance เปลี่ยนแปลงค่าไม่ได้
+var 
+let 
+
+
+==================================================================================
+    -instance
+        revise database,username,password,host,port
+    -server.js
+        create url / path 
+    model
+        design model and create teable
+    api
+        design model and create api.js    
+
+    

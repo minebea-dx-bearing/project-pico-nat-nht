@@ -1,0 +1,7 @@
+version: '3.3'
+services:
+  app:
+    image: "nhtminebea/nht-dx-pico"
+    build:
+      context: .
+      dockerfile: Dockerfile-nodejs
