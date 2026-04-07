@@ -3,7 +3,7 @@ const express = require("express");
 const sequelize = require("../instance/db");
 const cron = require('node-cron');
 const moment = require('moment-timezone');
-const dbNHT = require("../instance/db_nat");
+const dbNAT = require("../instance/db_nat");
 
 const router = express.Router();
 
@@ -18,7 +18,7 @@ cron.schedule('1 7 * * *', async () => {
     }
 
     await NewStatusGetDailyStatusReport(dateToday); // For All M/C 
-    console.log("NHT - MBR - New Running data status cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
+    console.log("NAT - FIM - New Running data status cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
 }, {
     timezone: "Asia/Bangkok"
 });
@@ -26,9 +26,9 @@ cron.schedule('1 7 * * *', async () => {
 const NewStatusGetDailyStatusReport = async (dateQuery) => {
     let dateToday = dateQuery;
     let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
-    console.log("NHT - MBR - Use date in NewStatusGetDailyStatusReport...", dateToday, dateTomorrow);
+    console.log("NAT - FIM - Use date in NewStatusGetDailyStatusReport...", dateToday, dateTomorrow);
     try {
-        let data = await dbNHT.query(`
+        let data = await dbNAT.query(`
             DECLARE @start_date DATETIME = '${dateToday} 06:00'; -- เปลี่ยนวันที่ด้วย
             DECLARE @TargetEndDate DATETIME = ${dateTomorrow} 06:00'; -- เปลี่ยนวันที่ด้วย
             DECLARE @end_date DATETIME = CASE WHEN @TargetEndDate > GETDATE()
@@ -54,7 +54,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                         WHEN RIGHT([alarm], 1) = '_' THEN 'after'
                         ELSE 'before'
                     END AS [alarm_type]
-                FROM [data_machine_assy1].[dbo].[DATA_ALARMLIS_ASSY]
+                FROM [nat_mc_assy_fim].[dbo].[DATA_ALARMLIS_FIM]
                 WHERE [occurred] BETWEEN @start_date_p1 AND @end_date_p1
             ),
             [with_pairing] AS (
@@ -79,7 +79,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
 					[process],
                     [registered],
                     CAST(broker AS FLOAT) AS [broker_f]
-                FROM [data_machine_assy1].[dbo].[MONITOR_IOT]
+                FROM [nat_mc_assy_fim].[dbo].[MONITOR_IOT]
                 WHERE registered BETWEEN @start_date_p1 AND @end_date_p1
             ),
             [mark] AS (
@@ -287,7 +287,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             const result = data[0]
             for (let index = 0; index < result.length; index++) {
                 await sequelize.query(`
-                    INSERT INTO [NHT_DX_TO_PICO].[dbo].[MBR_DAILY_STATUS_REPORT] ([operation_day],[is_operation_day],[process],[line_name],[machine_name],[status_name],[daily_duration_s],[daily_count],[shift1_duration_s],[shift1_count],[shift2_duration_s],[shift2_count],[shift3_duration_s],[shift3_count],[registered_at])
+                    INSERT INTO [NAT_DX_TO_PICO].[dbo].[FIM_DAILY_STATUS_REPORT] ([operation_day],[is_operation_day],[process],[line_name],[machine_name],[status_name],[daily_duration_s],[daily_count],[shift1_duration_s],[shift1_count],[shift2_duration_s],[shift2_count],[shift3_duration_s],[shift3_count],[registered_at])
                     SELECT
                         '${result[index].operation_day}',
                         '${result[index].is_operation_day}',
@@ -307,7 +307,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                     WHERE
                         NOT EXISTS ( 
                             SELECT 1
-                            FROM [NHT_DX_TO_PICO].[dbo].[MBR_DAILY_STATUS_REPORT]
+                            FROM [NAT_DX_TO_PICO].[dbo].[FIM_DAILY_STATUS_REPORT]
                             WHERE [operation_day] = '${result[index].operation_day}'
                                 AND [line_name] = '${result[index].line_name}'
                                 AND [machine_name] = '${result[index].machine_name}'
@@ -316,17 +316,17 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                                 AND [daily_count] = ${result[index].daily_count});
                 `);
             }
-            console.log("NHT - MBR - Insert status new Done!");
+            console.log("NAT - FIM - Insert status new Done!");
             return {
                 data: data[0],
                 success: true,
                 message: "Update data complete",
             }
         } else {
-            console.log("NHT - MBR - Can't new insert : Length = 0");
+            console.log("NAT - FIM - Can't new insert : Length = 0");
         }
     } catch (error) {
-        console.log("NHT - MBR - new status insert error:", error);
+        console.log("NAT - FIM - new status insert error:", error);
         return {
             data: error.message,
             success: true,

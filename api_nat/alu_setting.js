@@ -2,6 +2,7 @@ const express = require("express");
 const sequelize = require("../instance/db");
 const cron = require('node-cron');
 const moment = require('moment-timezone');
+const dbNAT = require("../instance/db_nat");
 
 const router = express.Router();
 
@@ -16,26 +17,26 @@ cron.schedule('1 7 * * *', async () => {
     }
 
     await getDailySettingReport();
-    console.log("NHT - AN - Running data setting cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
+    console.log("NAT - ALU - Running data setting cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
 }, {
     timezone: "Asia/Bangkok"
 });
 
 const getDailySettingReport = async () => {
     try {
-        let data = await sequelize.query(`
+        let data = await dbNAT.query(`
             WITH [rn] AS (
                 SELECT DISTINCT
                     UPPER(a.[mc_no]) AS [mc_no],
                     UPPER(a.[process]) AS [process],
                     CONCAT('LINE ', CAST(RIGHT(a.[mc_no],2) AS INT)) AS [line_no],
-                    5 AS [mc_order],
+                    8 AS [mc_order],
                     '6:00:00' AS [shift_start],
                     b.[ring_factor] AS [count_f],
                     b.[target_ct] * 1000 AS [ct],
                     ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
-                FROM [data_machine_an2].[dbo].[DATA_PRODUCTION_AN] a
-                LEFT JOIN [data_machine_an2].[dbo].[DATA_MASTER_AN] b ON a.mc_no = b.mc_no
+                FROM [nat_mc_assy_alu].[dbo].[DATA_PRODUCTION_ALU] a
+				LEFT JOIN [nat_mc_assy_alu].[dbo].[DATA_MASTER_ALU] b ON a.mc_no = b.mc_no
             )
             SELECT * FROM [rn]
             where rn = 1
@@ -47,6 +48,7 @@ const getDailySettingReport = async () => {
             const result = data[0]
             for (let index = 0; index < result.length; index++) {
                 const { process, line_no, mc_no, mc_order, shift_start, count_f, ct } = result[index];
+              
                 const check = await sequelize.query(
                   `
                   SELECT [process]
@@ -57,7 +59,7 @@ const getDailySettingReport = async () => {
                       ,[count_factor]
                       ,[target_cycle_time_ms]
                       ,[registered_at]
-                  FROM [NHT_DX_TO_PICO].[dbo].[AN_SETTING]
+                  FROM [NAT_DX_TO_PICO].[dbo].[ALU_SETTING]
                   WHERE machine_name = ?
                   `,
                   {
@@ -68,9 +70,10 @@ const getDailySettingReport = async () => {
               
                 if (check.length === 0) {
                   // ไม่พบ machine นี้ => INSERT ใหม่
+                  console.log([process, line_no, mc_no, mc_order, shift_start, count_f, ct])
                   await sequelize.query(
                     `
-                    INSERT INTO [NHT_DX_TO_PICO].[dbo].[AN_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
+                    INSERT INTO [NAT_DX_TO_PICO].[dbo].[ALU_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
                     VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
                     `,
                     {
@@ -91,12 +94,12 @@ const getDailySettingReport = async () => {
                     Number(existing.target_cycle_time_ms) === Number(ct);
               
                   if (!isSame) {
-                    console.log("NHT - AN - !isSame", !isSame);
+                    console.log("NAT - ALU - !isSame", !isSame);
                     
                     // ไม่เหมือนกัน → del แล้ว Insert ใหม่
                     await sequelize.query(
                       `
-                      DELETE FROM [NHT_DX_TO_PICO].[dbo].[AN_SETTING] WHERE machine_name = ?;
+                      DELETE FROM [NAT_DX_TO_PICO].[dbo].[ALU_SETTING] WHERE machine_name = ?;
                       `,
                       {
                         replacements: [mc_no],
@@ -105,11 +108,11 @@ const getDailySettingReport = async () => {
 
                     await sequelize.query(
                       `
-                      INSERT INTO [NHT_DX_TO_PICO].[dbo].[AN_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
+                      INSERT INTO [NAT_DX_TO_PICO].[dbo].[ALU_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
                       VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
-                    `,
-                    {
-                      replacements: [process, line_no, mc_no, mc_order, shift_start, count_f, ct]
+                      `,
+                      {
+                        replacements: [process, line_no, mc_no, mc_order, shift_start, count_f, ct]
                       }
                     );
                   }
@@ -123,8 +126,9 @@ const getDailySettingReport = async () => {
                 message: "Update data complete",
             }
         }
+
     } catch (error) {
-        console.log("NHT - AN - status insert error:" , error);
+        console.log("NAT - ALU - status insert error:" , error);
         return {
             data: error.message,
             success: true,

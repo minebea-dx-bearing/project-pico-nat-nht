@@ -3,6 +3,7 @@ const Sequelize = require("sequelize");
 //=========================================================
 const sequelize = new Sequelize("NHT_DX_TO_PICO", "sa", "Nhtsa@admin", {
   host: "10.128.16.207", // ถ้า connect db ไม่ได้ (ข้อมูลต้องใส่ถูกแล้วด้วย) ให้เปลี่ยนเป็นน "host"
+  // host: "10.120.139.25", // TWN ip
   timezone: "utc+7",
   dialect: "mssql",
 

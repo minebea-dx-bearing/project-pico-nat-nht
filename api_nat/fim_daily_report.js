@@ -1,5 +1,6 @@
 const express = require("express");
 const sequelize = require("../instance/db");
+const dbNAT = require("../instance/db_nat");
 const cron = require('node-cron');
 const moment = require('moment-timezone');
 
@@ -29,14 +30,14 @@ const getDailyReport = async (dateQuery) => {
     console.log("NAT - FIM - prod...", dateToday, dateTomorrow);
 
     try {
-        let data = await sequelize.query(`
+        let data = await dbNAT.query(`
             DECLARE @Columns NVARCHAR(MAX);
             DECLARE @Database NVARCHAR(MAX);
             DECLARE @LineName NVARCHAR(MAX);
             DECLARE @SQL NVARCHAR(MAX);
 
-            SET @Columns = '[total]';
-            SET @Database = '[data_machine_fim].[dbo].[DATA_PRODUCTION_FIM]';
+            SET @Columns = '[fim_ok]+[id_ng]+[od_ng]+[width_ng]+[chamfer_ng]+[mix_ng]';
+            SET @Database = '[nat_mc_assy_fim].[dbo].[DATA_PRODUCTION_FIM]';
             SET @LineName = 'CAST(RIGHT(s.[mc_no],2) AS INT)';
 
             -- อย่าลืมแก้เวลาตัดกะ
@@ -48,7 +49,7 @@ const getDailyReport = async (dateQuery) => {
                         CASE WHEN DATEPART(HOUR, registered) < 7 THEN CONVERT(date, DATEADD(DAY, -1, registered))
                             ELSE CONVERT(date, registered)
                         END AS [operation_day],
-                        CASE WHEN DATEPART (HOUR, registered) BETWEEN 7 AND 18 THEN ''M'' ELSE ''N'' END AS [shift_mn],
+                        CASE WHEN DATEPART (HOUR, registered) BETWEEN 7 AND 18 THEN ''M'' ELSE ''N'' END AS[shift_mn],
                         [mc_no],
                         [process],
                         ' + @Columns + ' AS [prod_total],
@@ -81,8 +82,8 @@ const getDailyReport = async (dateQuery) => {
                 SELECT
                     [operation_day],
                     ''true'' AS [is_operation_day],
-                    UPPER(s.[process]) AS [process],
-                    MAX(CONCAT(''LINE '', ' + @LineName + ')) AS [line_name],
+                    UPPER([process]) AS [process],
+                    CONCAT(''LINE '', ' + @LineName + ') AS [line_name],
                     UPPER(s.[mc_no]) AS [machine_name],
 
                     0 AS [daily_target_production_qty],
@@ -106,19 +107,20 @@ const getDailyReport = async (dateQuery) => {
                 LEFT JOIN [calc_daily] d ON s.[mc_no] = d.[mc_no]
                 GROUP BY
                     [operation_day],
-                    s.[process],
+                    [process],
                     s.[mc_no]
                 ORDER BY [machine_name]
             '
             EXEC sp_executesql @SQL;
         `);
+        // console.log("NAT - FIM - data prod...", data[0]);
 
         // STEP INSERT DATA
         if (data[0].length > 0) {
             const result = data[0]
             for (let i = 0; i < result.length; i++) {
                 await sequelize.query(`
-                    INSERT INTO  [NHT_DX_TO_PICO].[dbo].[FIM_DAILY_REPORT] (
+                    INSERT INTO  [NAT_DX_TO_PICO].[dbo].[FIM_DAILY_REPORT] (
                         [operation_day], [is_operation_day], [process], [line_name], [machine_name],
                         [daily_target_production_qty], [daily_actual_production_qty], [shift1_actual_production_qty],
                         [shift1_target_production_qty], [shift2_actual_production_qty], [shift2_target_production_qty],
@@ -131,7 +133,7 @@ const getDailyReport = async (dateQuery) => {
                         ${result[i].shift3_actual_production_qty}, ${result[i].shift3_target_production_qty}, GETDATE()
                     WHERE NOT EXISTS (
                         SELECT 1
-                        FROM  [NHT_DX_TO_PICO].[dbo].[FIM_DAILY_REPORT]
+                        FROM  [NAT_DX_TO_PICO].[dbo].[FIM_DAILY_REPORT]
                         WHERE
                             [operation_day] = '${result[i].operation_day}'
                             AND [line_name] = '${result[i].line_name}'
