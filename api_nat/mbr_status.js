@@ -344,7 +344,7 @@ const getDaily = async (dateToday) => {
     const lastDay = new Date(year, month + 1, 0).getDate();
 
     // วนลูปทุกวันในเดือนนี้
-    for (let day = 0; day <= lastDay; day++) {
+    for (let day = 1; day <= lastDay; day++) {
         // สร้างวันที่ในรูปแบบ 'YYYY-MM-DD'
         const currentDate = new Date(year, month, day);
         const formatted = currentDate.toISOString().split('T')[0];
@@ -355,7 +355,8 @@ const getDaily = async (dateToday) => {
 }
  
 // เรียกใช้
-// getDaily('2025-09-01'); 
-// NewStatusGetDailyStatusReport('2025-12-26');
+// console.log(".....")
+// getDaily('2026-03-2'); 
+// // NewStatusGetDailyStatusReport('2025-12-26');
 
 module.exports = router;

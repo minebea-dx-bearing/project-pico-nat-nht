@@ -26,6 +26,11 @@ app.use("/api/gssm_nat_setting", require("./api_nat/gssm_setting"));
 app.use("/api/gssm_nat_status", require("./api_nat/gssm_status"));
 app.use("/api/gssm_nat_daily_report", require("./api_nat/gssm_daily_report"));
 
+// MBR NAT
+app.use("/api/mbr_nat_setting", require("./api_nat/mbr_setting"));
+app.use("/api/mbr_nat_status", require("./api_nat/mbr_status"));
+app.use("/api/mbr_nat_daily_report", require("./api_nat/mbr_daily_report"));
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });

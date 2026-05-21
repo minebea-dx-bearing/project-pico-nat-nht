@@ -178,4 +178,29 @@ const getDailyReport = async (dateQuery) => {
     }
 }
 
+
+
+const getDaily = async (dateToday) => {
+    const date = new Date(dateToday);
+    const year = date.getFullYear();
+    const month = date.getMonth(); // เดือนเริ่มจาก 0 (มกราคม = 0)
+
+    // หาวันสุดท้ายของเดือนนี้
+    const lastDay = new Date(year, month + 1, 0).getDate();
+
+    // วนลูปทุกวันในเดือนนี้
+    for (let day = 1; day <= 19; day++) {
+        // สร้างวันที่ในรูปแบบ 'YYYY-MM-DD'
+        const currentDate = new Date(year, month, day);
+        const formatted = currentDate.toISOString().split('T')[0];
+        console.log(formatted);
+        // await getDailyReport(formatted);
+        console.log("ok");
+    }
+}
+ 
+// เรียกใช้
+// console.log(".....")
+// // getDaily('2026-03-02'); 
+
 module.exports = router;
