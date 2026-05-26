@@ -2,6 +2,7 @@ const express = require("express");
 const sequelize = require("../instance/db");
 const cron = require('node-cron');
 const moment = require('moment-timezone');
+const { get } = require("./gd2nd_setting");
 
 const router = express.Router();
 
@@ -141,6 +142,7 @@ const getDailyReport = async (dateQuery) => {
                     );
                 `);
             }
+        console.log("NHT - AOD - OK");
             return {
                 data: data[0],
                 success: true,

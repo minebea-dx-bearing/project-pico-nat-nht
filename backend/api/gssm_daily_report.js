@@ -141,6 +141,7 @@ const getDailyReport = async (dateQuery) => {
                     );
                 `);
             }
+        console.log("NHT - GSSM - OK");
             return {
                 data: data[0],
                 success: true,

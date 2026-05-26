@@ -117,6 +117,7 @@ const getDailySettingReport = async () => {
                 }
               }
 
+        console.log("NHT - FIM - setting OK");
             return {
                 data: data[0],
                 success: true,

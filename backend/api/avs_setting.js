@@ -117,6 +117,7 @@ const getDailySettingReport = async () => {
                 }
               }
 
+        console.log("NHT - AVS - setting OK");
             return {
                 data: data[0],
                 success: true,
@@ -132,5 +133,4 @@ const getDailySettingReport = async () => {
         }
     }
 }
-
 module.exports = router;

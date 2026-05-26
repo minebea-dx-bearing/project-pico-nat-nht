@@ -116,6 +116,7 @@ const getDailySettingReport = async () => {
                   // ถ้าเหมือน => ไม่ต้องทำอะไร
                 }
               }
+        console.log("NHT - AN - setting OK");
 
             return {
                 data: data[0],

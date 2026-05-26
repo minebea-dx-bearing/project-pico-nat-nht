@@ -147,6 +147,7 @@ const getDailyReport = async (dateQuery) => {
                 message: "Update data complete",
             }
         }
+        console.log("NHT - ALU OK");
     } catch (error) {
         console.log("NHT - ALU - prod insert error:", error);
         return {
