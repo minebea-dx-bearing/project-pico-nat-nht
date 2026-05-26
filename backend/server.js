@@ -94,5 +94,5 @@ app.use("/api/alu_nat_status", require("./api_nat/alu_status"));
 app.use("/api/alu_nat_daily_report", require("./api_nat/alu_daily_report"));
 
 app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+  console.log(`Server is running on port ${port} - ${moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss")}`);
 });
