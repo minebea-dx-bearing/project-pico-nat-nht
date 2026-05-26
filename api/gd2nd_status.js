@@ -16,35 +16,35 @@ cron.schedule('1 7 * * *', async () => {
         dateToday = moment().tz('Asia/Bangkok').format("YYYY-MM-DD");
     }
 
-    // await getDailyStatusReport(dateToday);
     await NewStatusGetDailyStatusReport(dateToday); // For All M/C 
-    console.log("2ND G/D - New Running data status cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
+    console.log("NHT - GD2ND - New Running data status cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
 }, {
     timezone: "Asia/Bangkok"
 });
 
-
 const NewStatusGetDailyStatusReport = async (dateQuery) => {
     let dateToday = dateQuery;
     let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
-    console.log("2ND G/D - Use date in NewStatusGetDailyStatusReport...", dateToday, dateTomorrow);
+    console.log("NHT - GD2ND - Use date in NewStatusGetDailyStatusReport...", dateToday, dateTomorrow);
     try {
-        let data = await sequelize.query(
-            `DECLARE @start_date DATETIME = '${dateToday} 07:00'; -- เปลี่ยนวันที่ด้วย
+        let data = await sequelize.query(`
+            DECLARE @start_date DATETIME = '${dateToday} 07:00'; -- เปลี่ยนวันที่ด้วย
             DECLARE @TargetEndDate DATETIME = '${dateTomorrow} 07:00'; -- เปลี่ยนวันที่ด้วย
-            DECLARE @end_date DATETIME = CASE
-            WHEN @TargetEndDate > GETDATE()
-            THEN GETDATE()
-            ELSE @TargetEndDate
-            END;
+            DECLARE @end_date DATETIME = CASE WHEN @TargetEndDate > GETDATE()
+                                            THEN GETDATE()
+                                            ELSE @TargetEndDate
+                                        END;
             DECLARE @start_date_p1 DATETIME = DATEADD(HOUR, -2, @start_date);    -- เวลาที่ต้องการลบไป 2hr เพื่อดึง alarm ตัวก่อนหน้า --
             DECLARE @end_date_p1 DATETIME = DATEADD(HOUR, 2, @end_date);        -- เวลาที่ต้องการบวกไป 2hr เพื่อดึง alarm ตัวหลัง --
+            DECLARE @shiftStart NVARCHAR(50) = '07:00:00';
+            DECLARE @shiftStop NVARCHAR(50) = '18:59:59';
                     
             WITH [base_alarm] AS (
                 SELECT
                     [mc_no],
                     [occurred],
                     [alarm],
+					[process],
                     CASE
                         WHEN RIGHT([alarm], 1) = '_' THEN LEFT([alarm], LEN([alarm]) - 1)
                         ELSE [alarm]
@@ -55,8 +55,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                     END AS [alarm_type]
                 FROM [data_machine_gd2].[dbo].[DATA_ALARMLIS_GD]
                 WHERE [occurred] BETWEEN @start_date_p1 AND @end_date_p1
-            )
-			,
+            ),
             [with_pairing] AS (
                 SELECT *,
                     LEAD([occurred]) OVER (PARTITION BY [mc_no], [status_alarm] ORDER BY [occurred]) AS [occurred_next],
@@ -66,6 +65,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [paired_alarms] AS (
                 SELECT
                     [mc_no],
+					[process],
                     [status_alarm],
                     [occurred] AS [occurred_start],
                     [occurred_next] AS [occurred_end]
@@ -75,6 +75,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [base_monitor_iot] AS (
                 SELECT
                     [mc_no],
+					[process],
                     [registered],
                     CAST(broker AS FLOAT) AS [broker_f]
                 FROM [data_machine_gd2].[dbo].[MONITOR_IOT]
@@ -83,6 +84,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [mark] AS (
                 SELECT
                     [mc_no],
+					[process],
                     [registered],
                     [broker_f],
                     CASE WHEN [broker_f] = 0 THEN 1 ELSE 0 END AS [is_zero],
@@ -111,10 +113,11 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             ),
             [summary_connection_lose] AS (
                 SELECT
-                [mc_no],
-                'connection lose' AS [status_alarm],
-                MIN(registered) AS [occurred_start],
-                MAX(CASE WHEN [end_flag] = 1 THEN ISNULL([next_registered], [registered]) END) AS [occurred_end]
+                    [mc_no],
+					MAX([process]) AS [process],
+                    'connection lose' AS [status_alarm],
+                    MIN(registered) AS [occurred_start],
+                    MAX(CASE WHEN [end_flag] = 1 THEN ISNULL([next_registered], [registered]) END) AS [occurred_end]
                 FROM [grpz]
                 GROUP BY [mc_no], [grp]
             ),
@@ -135,6 +138,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [check_duplicate] AS (
                 SELECT
                     [mc_no],
+					[process],
                     [status_alarm],
                     [occurred_start],
                     [occurred_end],
@@ -147,6 +151,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [clamped_alarms] AS (
                 SELECT
                     [mc_no],
+					[process],
                     [status_alarm],
                     [occurred_start],
                     [occurred_end],
@@ -172,6 +177,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [insert_stop] AS (
                 SELECT
                     [mc_no],
+					[process],
                     'STOP' AS [status_alarm],
                     [occurred_end] AS [occurred_start],
                     [next_occurred] AS [occurred_end]
@@ -181,6 +187,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [insert_stop_end] AS (
                 SELECT
                     [mc_no],
+					[process],
                     'STOP' AS [status_alarm],
                     [occurred_end] AS [occurred_start],
                     @end_date AS [occurred_end]
@@ -190,6 +197,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [insert_stop_start] AS (
                 SELECT
                     [mc_no],
+					[process],
                     'STOP' AS [status_alarm],
                     @start_date AS [occurred_start],
                     [new_occurred_start] AS [occurred_end]
@@ -197,17 +205,18 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                 WHERE [previous_gap_seconds] IS NULL
             ),
             [combine_result] AS (
-                SELECT UPPER([mc_no]) AS [mc_no], UPPER([status_alarm]) AS [status_alarm], [new_occurred_start] AS [occurred_start], [occurred_end] FROM [edit_occurred]
+                SELECT UPPER([mc_no]) AS [mc_no], [process], UPPER([status_alarm]) AS [status_alarm], [new_occurred_start] AS [occurred_start], [occurred_end] FROM [edit_occurred]
                 UNION ALL
-                SELECT UPPER([mc_no]) AS [mc_no], [status_alarm], [occurred_start], [occurred_end] FROM [insert_stop]
+                SELECT UPPER([mc_no]) AS [mc_no], [process], [status_alarm], [occurred_start], [occurred_end] FROM [insert_stop]
                 UNION ALL
-                SELECT UPPER([mc_no]) AS [mc_no], [status_alarm], [occurred_start], [occurred_end] FROM [insert_stop_end]
+                SELECT UPPER([mc_no]) AS [mc_no], [process], [status_alarm], [occurred_start], [occurred_end] FROM [insert_stop_end]
                 UNION ALL
-                SELECT UPPER([mc_no]) AS [mc_no], [status_alarm], [occurred_start], [occurred_end] FROM [insert_stop_start]
+                SELECT UPPER([mc_no]) AS [mc_no], [process], [status_alarm], [occurred_start], [occurred_end] FROM [insert_stop_start]
             ),
             [edit_time_result] AS (
                 SELECT
                     [mc_no],
+					[process],
                     [status_alarm],
                     CASE 
                         WHEN [occurred_start] < @start_date THEN CAST(@start_date AS datetime)
@@ -221,11 +230,9 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             ),
             [filter_result] AS (
                 SELECT
-                    *,
-                    'GD' AS [process] -- add process เอง
+                    *
                 FROM [edit_time_result]
-                WHERE
-                    [occurred_end] > [occurred_start]
+                WHERE [occurred_end] > [occurred_start]
             ),
             [summary_alarm] AS (
                 SELECT
@@ -234,21 +241,20 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                     status_alarm,
                     occurred_start,
                     occurred_end,
-					m.line_no,
-
-                CASE 
-                    WHEN DATEPART(HOUR, [occurred_start]) < 7 THEN 
-                        CONVERT(date, DATEADD(DAY, -1, [occurred_start]))
-                    ELSE 
-                        CONVERT(date, [occurred_start])
-                END AS [date],
-                CASE 
-                    WHEN CONVERT(TIME, [occurred_start]) BETWEEN '07:00:00' AND '18:59:59' THEN 'M'
-                    ELSE 'N'
-                END AS [shift_mn],
-                DATEDIFF(SECOND, [occurred_start], [occurred_end]) AS [duration_seconds]
+                    m.line_no,
+                    CASE 
+                        WHEN DATEPART(HOUR, [occurred_start]) < 7 THEN 
+                            CONVERT(date, DATEADD(DAY, -1, [occurred_start]))
+                        ELSE 
+                            CONVERT(date, [occurred_start])
+                    END AS [date],
+                    CASE 
+                        WHEN CONVERT(TIME, [occurred_start]) BETWEEN @shiftStart AND @shiftStop THEN 'M'
+                        ELSE 'N'
+                    END AS [shift_mn],
+                    DATEDIFF(SECOND, [occurred_start], [occurred_end]) AS [duration_seconds]
                 FROM [filter_result] f
-				LEFT JOIN[data_machine_gd2].[dbo].[master_mc_run_parts] m ON f.mc_no = m.mc_no
+                LEFT JOIN [data_machine_gd2].[dbo].[master_mc_run_parts] m ON f.mc_no = m.mc_no
             )
                     
             -- Pattern data PICO --
@@ -256,7 +262,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                 [date] AS [operation_day]
                 ,'true' AS [is_operation_day]
                 ,UPPER([process]) AS [process]
-				,CONCAT('LINE ', line_no) AS line_name
+                ,CONCAT('LINE ', CAST(LEFT(RIGHT([mc_no],3),2) AS INT))  AS line_name
                 ,UPPER([mc_no]) AS [machine_name]
                 ,[status_alarm] AS [status_name]
                 ,SUM([duration_seconds]) AS [daily_duration_s]
@@ -273,52 +279,45 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                 ,[process]
                 ,[date]
                 ,[status_alarm]
-				,[line_no]
-            ORDER BY [operation_day], [machine_name], [status_name]`
-        );
+            ORDER BY [operation_day], [machine_name], [status_name]
+        `);
         // console.log(data);
         
         // STEP INSERT DATA
         if (data[0].length > 0) {
             const result = data[0]
             for (let index = 0; index < result.length; index++) {
-                await sequelize.query(
-                    `
-            INSERT INTO[NHT_DX_TO_PICO].[dbo].[GD2ND_DAILY_STATUS_REPORT] ([operation_day],[is_operation_day],[process],[line_name],[machine_name],[status_name],[daily_duration_s],[daily_count],[shift1_duration_s],[shift1_count],[shift2_duration_s],[shift2_count],[shift3_duration_s],[shift3_count],[registered_at])
-            SELECT
-                '${result[index].operation_day}',
-                '${result[index].is_operation_day}',
-                '${result[index].process}',
-                '${result[index].line_name}',
-                '${result[index].machine_name}',
-                '${result[index].status_name}',
-                ${result[index].daily_duration_s},
-                ${result[index].daily_count},
-                ${result[index].shift1_duration_s},
-                ${result[index].shift1_count},
-                ${result[index].shift2_duration_s},
-                ${result[index].shift2_count},
-                ${result[index].shift3_duration_s},
-                ${result[index].shift3_count},
-                GETDATE ()
-            WHERE
-                NOT EXISTS (
+                await sequelize.query(`
+                    INSERT INTO [NHT_DX_TO_PICO].[dbo].[GD2ND_DAILY_STATUS_REPORT] ([operation_day],[is_operation_day],[process],[line_name],[machine_name],[status_name],[daily_duration_s],[daily_count],[shift1_duration_s],[shift1_count],[shift2_duration_s],[shift2_count],[shift3_duration_s],[shift3_count],[registered_at])
                     SELECT
-                        1
-                    FROM
-            [NHT_DX_TO_PICO].[dbo].[GD2ND_DAILY_STATUS_REPORT]
+                        '${result[index].operation_day}',
+                        '${result[index].is_operation_day}',
+                        '${result[index].process}',
+                        '${result[index].line_name}',
+                        '${result[index].machine_name}',
+                        '${result[index].status_name}',
+                        ${result[index].daily_duration_s},
+                        ${result[index].daily_count},
+                        ${result[index].shift1_duration_s},
+                        ${result[index].shift1_count},
+                        ${result[index].shift2_duration_s},
+                        ${result[index].shift2_count},
+                        ${result[index].shift3_duration_s},
+                        ${result[index].shift3_count},
+                        GETDATE ()
                     WHERE
-            [operation_day] = '${result[index].operation_day}'
-                        AND [line_name] = '${result[index].line_name}'
-                        AND [machine_name] = '${result[index].machine_name}'
-                        AND [status_name] = '${result[index].status_name}'
-                        AND [daily_duration_s] = ${result[index].daily_duration_s}
-                        AND [daily_count] = ${result[index].daily_count});
-
-`
-                );
+                        NOT EXISTS ( 
+                            SELECT 1
+                            FROM [NHT_DX_TO_PICO].[dbo].[GD2ND_DAILY_STATUS_REPORT]
+                            WHERE [operation_day] = '${result[index].operation_day}'
+                                AND [line_name] = '${result[index].line_name}'
+                                AND [machine_name] = '${result[index].machine_name}'
+                                AND [status_name] = '${result[index].status_name}'
+                                AND [daily_duration_s] = ${result[index].daily_duration_s}
+                                AND [daily_count] = ${result[index].daily_count});
+                `);
             }
-            console.log("2ND G/D - Insert new Done!");
+            console.log("NHT - GD2ND - Insert status new Done!");
 
             return {
                 data: data[0],
@@ -326,21 +325,17 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                 message: "Update data complete",
             }
         } else {
-            console.log("2ND G/D - Can't new insert : Length = 0");
- 
+            console.log("NHT - GD2ND - Can't new insert : Length = 0");
         }
-
     } catch (error) {
-        console.log("2ND G/D - new status insert error:", error);
+        console.log("NHT - GD2ND - new status insert error:", error);
         return {
             data: error.message,
             success: true,
             message: "Can't update data",
         }
-
     }
 }
-
 
 const getDaily = async (dateToday) => {
     const date = new Date(dateToday);
@@ -357,14 +352,12 @@ const getDaily = async (dateToday) => {
         const formatted = currentDate.toISOString().split('T')[0];
         console.log(formatted);
         await NewStatusGetDailyStatusReport(formatted);
-        console.log("2ND G/D - ok");
-        // //await getDailyStatusReport(formatted);
+        console.log("ok");
     }
 }
  
 // เรียกใช้
 // getDaily('2025-09-01'); 
-// // getDailyStatusReport('2025-07-31');
-// NewStatusGetDailyStatusReport('2025-12-03');
+// NewStatusGetDailyStatusReport('2025-12-26');
 
 module.exports = router;

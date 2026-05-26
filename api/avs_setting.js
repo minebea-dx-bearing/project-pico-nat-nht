@@ -16,7 +16,7 @@ cron.schedule('1 7 * * *', async () => {
     }
 
     await getDailySettingReport();
-    console.log("NHT - AN - Running data setting cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
+    console.log("NHT - AVS - Running data setting cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
 }, {
     timezone: "Asia/Bangkok"
 });
@@ -29,13 +29,13 @@ const getDailySettingReport = async () => {
                     UPPER(a.[mc_no]) AS [mc_no],
                     UPPER(a.[process]) AS [process],
                     CONCAT('LINE ', CAST(RIGHT(a.[mc_no],2) AS INT)) AS [line_no],
-                    5 AS [mc_order],
+                    7 AS [mc_order],
                     '6:00:00' AS [shift_start],
                     b.[ring_factor] AS [count_f],
                     b.[target_ct] * 1000 AS [ct],
                     ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
-                FROM [data_machine_an2].[dbo].[DATA_PRODUCTION_AN] a
-                LEFT JOIN [data_machine_an2].[dbo].[DATA_MASTER_AN] b ON a.mc_no = b.mc_no
+                FROM [data_machine_avs].[dbo].[DATA_PRODUCTION_AVS] a
+                LEFT JOIN [data_machine_avs].[dbo].[DATA_MASTER_AVS] b ON a.mc_no = b.mc_no
             )
             SELECT * FROM [rn]
             where rn = 1
@@ -57,7 +57,7 @@ const getDailySettingReport = async () => {
                       ,[count_factor]
                       ,[target_cycle_time_ms]
                       ,[registered_at]
-                  FROM [NHT_DX_TO_PICO].[dbo].[AN_SETTING]
+                  FROM [NHT_DX_TO_PICO].[dbo].[AVS_SETTING]
                   WHERE machine_name = ?
                   `,
                   {
@@ -70,7 +70,7 @@ const getDailySettingReport = async () => {
                   // ไม่พบ machine นี้ => INSERT ใหม่
                   await sequelize.query(
                     `
-                    INSERT INTO [NHT_DX_TO_PICO].[dbo].[AN_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
+                    INSERT INTO [NHT_DX_TO_PICO].[dbo].[AVS_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
                     VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
                     `,
                     {
@@ -91,12 +91,12 @@ const getDailySettingReport = async () => {
                     Number(existing.target_cycle_time_ms) === Number(ct);
               
                   if (!isSame) {
-                    console.log("NHT - AN - !isSame", !isSame);
+                    console.log("NHT - AVS - !isSame", !isSame);
                     
                     // ไม่เหมือนกัน → del แล้ว Insert ใหม่
                     await sequelize.query(
                       `
-                      DELETE FROM [NHT_DX_TO_PICO].[dbo].[AN_SETTING] WHERE machine_name = ?;
+                      DELETE FROM [NHT_DX_TO_PICO].[dbo].[AVS_SETTING] WHERE machine_name = ?;
                       `,
                       {
                         replacements: [mc_no],
@@ -105,7 +105,7 @@ const getDailySettingReport = async () => {
 
                     await sequelize.query(
                       `
-                      INSERT INTO [NHT_DX_TO_PICO].[dbo].[AN_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
+                      INSERT INTO [NHT_DX_TO_PICO].[dbo].[AVS_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
                       VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
                     `,
                     {
@@ -124,7 +124,7 @@ const getDailySettingReport = async () => {
             }
         }
     } catch (error) {
-        console.log("NHT - AN - status insert error:" , error);
+        console.log("NHT - AVS - status insert error:" , error);
         return {
             data: error.message,
             success: true,

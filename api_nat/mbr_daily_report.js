@@ -30,143 +30,124 @@ const getDailyReport = async (dateQuery) => {
     console.log("NAT - MBR - prod...", dateToday, dateTomorrow);
 
     try {
-        let data = await dbNAT.query(
-            `WITH[ordered_data] AS (
+        let data = await dbNAT.query(`
+            DECLARE @Columns NVARCHAR(MAX);
+            DECLARE @Database NVARCHAR(MAX);
+            DECLARE @LineName NVARCHAR(MAX);
+            DECLARE @SQL NVARCHAR(MAX);
+
+            SET @Columns = '[daily_tt]';
+            SET @Database = '[nat_mc_assy_mbr].[dbo].[DATA_PRODUCTION_MBR]';
+            SET @LineName = 'CAST(RIGHT(s.[mc_no],2) AS INT)';
+
+            -- อย่าลืมแก้เวลาตัดกะ
+
+            SET @SQL = '
+                WITH [raw_data] AS (
+                    SELECT
+                        [registered],
+                        CASE WHEN DATEPART(HOUR, registered) < 7 THEN CONVERT(date, DATEADD(DAY, -1, registered))
+                            ELSE CONVERT(date, registered)
+                        END AS [operation_day],
+                        CASE WHEN DATEPART (HOUR, registered) BETWEEN 7 AND 18 THEN ''M'' ELSE ''N'' END AS[shift_mn],
+                        [mc_no],
+                        [process],
+                        ' + @Columns + ' AS [prod_total],
+                        CASE WHEN ' + @Columns + ' - LAG(' + @Columns + ') OVER (PARTITION BY mc_no ORDER BY registered) < 0 THEN ' + @Columns + '
+                            ELSE ' + @Columns + ' - LAG(' + @Columns + ') OVER (PARTITION BY mc_no ORDER BY registered)
+                        END AS [prod_total_diff]
+                    FROM ' + @Database + '
+                    WHERE [registered] BETWEEN ''${dateToday} 06:00'' AND ''${dateTomorrow} 07:00''
+                ),
+                [calc_shift] AS (
+                    SELECT
+                        MAX([operation_day]) AS [operation_day],
+                        MAX([shift_mn]) AS [shift_mn],
+                        [mc_no],
+                        MAX([process]) AS [process],
+                        SUM([prod_total_diff]) AS [prod_total_diff]
+                    FROM [raw_data]
+                    WHERE [operation_day] = ''${dateToday}''
+                    GROUP BY 
+                        [mc_no],
+                        [shift_mn]
+                ),
+                [calc_daily] AS (
+                    SELECT
+                        [mc_no],
+                        SUM([prod_total_diff]) AS [prod_daily]
+                    FROM [calc_shift]
+                    GROUP BY [mc_no]
+                )
                 SELECT
-            [registered],
-                    CASE WHEN DATEPART (HOUR, registered) BETWEEN 7 AND 18 THEN
-                        'M'
-                    ELSE
-                        'N'
-                    END AS[shift_mn],
-            [mc_no],
-            [process],
-            [daily_tt] AS [prod_total],
-                    LAG([daily_tt]) OVER (PARTITION BY[mc_no],
-                        CASE WHEN DATEPART (HOUR, registered) BETWEEN 7 AND 18 THEN
-                            'M'
-                        ELSE
-                            'N'
-                        END ORDER BY[registered]) AS[prev_ok],
-                    LEAD([daily_tt]) OVER (PARTITION BY[mc_no],
-                        CASE WHEN DATEPART (HOUR, registered) BETWEEN 7 AND 18 THEN
-                            'M'
-                        ELSE
-                            'N'
-                        END ORDER BY[registered]) AS[next_ok]
-                FROM
-            [nat_mc_assy_mbr].[dbo].[DATA_PRODUCTION_MBR]
-                WHERE
-            [registered] BETWEEN '${dateToday} 06:30' AND '${dateTomorrow} 07:30'
-            ),
-            [calculated] AS (
-                SELECT
-            [registered],
-                    CASE WHEN DATEPART (HOUR,[registered]) < 7
-                        OR[next_ok] IS NULL THEN
-                        CONVERT(date, DATEADD (DAY, -1,[registered]))
-                    ELSE
-                        CONVERT(date,[registered])
-                    END AS[operation_day],
-            [shift_mn],
-            [process],
-            [mc_no],
-            [prev_ok],
-            [prod_total],
-            [next_ok],
-                    CASE WHEN[prev_ok] IS NULL
-                        AND[prod_total] >[next_ok] THEN
-                        0
-                    WHEN[prev_ok] IS NULL THEN
-                        -[prod_total]
-                    WHEN[prod_total] >[next_ok] THEN
-            [prod_total]
-                    WHEN[next_ok] IS NULL THEN
-            [prod_total]
-                    ELSE
-                        0
-                    END AS[adjust_ok]
-                FROM
-            [ordered_data])
-            SELECT
-            [operation_day],
-                'true' AS[is_operation_day],
-                'MBR' AS[process],
-				CONCAT('LINE ', (CAST(RIGHT(calculated.[mc_no], 2) AS INT)))  AS line_name,
-                UPPER(calculated.[mc_no]) AS[machine_name],
-                0 AS[daily_target_production_qty],
-                SUM([adjust_ok]) AS[daily_actual_production_qty],
-                SUM(
-                    CASE WHEN[shift_mn] IN ('M', 'A') THEN
-            [adjust_ok]
-                    ELSE
-                        0
-                    END) AS[shift1_actual_production_qty],
-                0 AS[shift1_target_production_qty],
-                SUM(
-                    CASE WHEN[shift_mn] IN ('N', 'B') THEN
-            [adjust_ok]
-                    ELSE
-                        0
-                    END) AS[shift2_actual_production_qty],
-                0 AS[shift2_target_production_qty],
-                SUM(
-                    CASE WHEN[shift_mn] = 'C' THEN
-            [adjust_ok]
-                    ELSE
-                        0
-                    END) AS[shift3_actual_production_qty],
-                0 AS[shift3_target_production_qty]
-            FROM
-            [calculated]
-                LEFT JOIN [nat_mc_assy_mbr].[dbo].[DATA_MASTER_MBR] m ON calculated.mc_no = m.mc_no
-            GROUP BY
-            [operation_day],
-                calculated.[mc_no]
-            ORDER BY
-                machine_name`
-        );
+                    [operation_day],
+                    ''true'' AS [is_operation_day],
+                    UPPER([process]) AS [process],
+                    CONCAT(''LINE '', ' + @LineName + ') AS [line_name],
+                    UPPER(s.[mc_no]) AS [machine_name],
+
+                    0 AS [daily_target_production_qty],
+                    MAX([prod_daily]) AS [daily_actual_production_qty],
+
+                    SUM(CASE WHEN [shift_mn] IN (''M'', ''A'') THEN [prod_total_diff]
+                        ELSE 0
+                    END) AS [shift1_actual_production_qty],
+                    0 AS [shift1_target_production_qty],
+
+                    SUM(CASE WHEN [shift_mn] IN (''N'', ''B'') THEN [prod_total_diff]
+                        ELSE 0
+                    END) AS [shift2_actual_production_qty],
+                    0 AS [shift2_target_production_qty],
+
+                    SUM(CASE WHEN [shift_mn] = ''C'' THEN [prod_total_diff]
+                        ELSE 0
+                    END) AS [shift3_actual_production_qty],
+                    0 AS [shift3_target_production_qty]
+                FROM [calc_shift] s
+                LEFT JOIN [calc_daily] d ON s.[mc_no] = d.[mc_no]
+                GROUP BY
+                    [operation_day],
+                    [process],
+                    s.[mc_no]
+                ORDER BY [machine_name]
+            '
+            EXEC sp_executesql @SQL;
+        `);
 
         // STEP INSERT DATA
         if (data[0].length > 0) {
             const result = data[0]
             for (let i = 0; i < result.length; i++) {
-                await sequelize.query(
-                    `
-                INSERT INTO  [NAT_DX_TO_PICO].[dbo].[MBR_DAILY_REPORT] (
-                    [operation_day], [is_operation_day], [process], [line_name], [machine_name],
-                    [daily_target_production_qty], [daily_actual_production_qty], [shift1_actual_production_qty],
-                    [shift1_target_production_qty], [shift2_actual_production_qty], [shift2_target_production_qty],
-                    [shift3_actual_production_qty], [shift3_target_production_qty], [registered_at]
-                )
-                SELECT
-                    '${result[i].operation_day}', '${result[i].is_operation_day}', '${result[i].process}', '${result[i].line_name}', '${result[i].machine_name}',
-                    ${result[i].daily_target_production_qty}, ${result[i].daily_actual_production_qty}, ${result[i].shift1_actual_production_qty},
-                    ${result[i].shift1_target_production_qty}, ${result[i].shift2_actual_production_qty}, ${result[i].shift2_target_production_qty},
-                    ${result[i].shift3_actual_production_qty}, ${result[i].shift3_target_production_qty}, GETDATE()
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM  [NAT_DX_TO_PICO].[dbo].[MBR_DAILY_REPORT]
-                    WHERE
-                        [operation_day] = '${result[i].operation_day}'
-                        AND [line_name] = '${result[i].line_name}'
-                        AND [machine_name] = '${result[i].machine_name}'
-                        AND [daily_target_production_qty] = ${result[i].daily_target_production_qty}
-                        AND [daily_actual_production_qty] = ${result[i].daily_actual_production_qty}
-);
-`
-                );
-
+                await sequelize.query(`
+                    INSERT INTO  [NAT_DX_TO_PICO].[dbo].[MBR_DAILY_REPORT] (
+                        [operation_day], [is_operation_day], [process], [line_name], [machine_name],
+                        [daily_target_production_qty], [daily_actual_production_qty], [shift1_actual_production_qty],
+                        [shift1_target_production_qty], [shift2_actual_production_qty], [shift2_target_production_qty],
+                        [shift3_actual_production_qty], [shift3_target_production_qty], [registered_at]
+                    )
+                    SELECT
+                        '${result[i].operation_day}', '${result[i].is_operation_day}', '${result[i].process}', '${result[i].line_name}', '${result[i].machine_name}',
+                        ${result[i].daily_target_production_qty}, ${result[i].daily_actual_production_qty}, ${result[i].shift1_actual_production_qty},
+                        ${result[i].shift1_target_production_qty}, ${result[i].shift2_actual_production_qty}, ${result[i].shift2_target_production_qty},
+                        ${result[i].shift3_actual_production_qty}, ${result[i].shift3_target_production_qty}, GETDATE()
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM  [NAT_DX_TO_PICO].[dbo].[MBR_DAILY_REPORT]
+                        WHERE
+                            [operation_day] = '${result[i].operation_day}'
+                            AND [line_name] = '${result[i].line_name}'
+                            AND [machine_name] = '${result[i].machine_name}'
+                            AND [daily_target_production_qty] = ${result[i].daily_target_production_qty}
+                            AND [daily_actual_production_qty] = ${result[i].daily_actual_production_qty}
+                    );
+                `);
             }
-
             return {
                 data: data[0],
                 success: true,
                 message: "Update data complete",
             }
-
         }
-
     } catch (error) {
         console.log("NAT - MBR - prod insert error:", error);
         return {
@@ -174,7 +155,6 @@ const getDailyReport = async (dateQuery) => {
             success: true,
             message: "Can't update data",
         }
-
     }
 }
 

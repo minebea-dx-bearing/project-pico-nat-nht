@@ -24,23 +24,24 @@ cron.schedule('1 7 * * *', async () => {
 
 const getDailySettingReport = async () => {
     try {
-        let data = await dbNAT.query(
-            `SELECT DISTINCT
-                (a.[mc_no]),
-                'GSSM' AS[process],
-                CONCAT('LINE ', (CAST(
-                        RIGHT (a.[mc_no], 2) AS INT))) AS line_no,
-                1 AS[mc_order],
-                '7:00:00' AS shift_start,
-                1 AS count_f,
-                target_ct * 1000 AS ct
-            FROM
-            [nat_mc_assy_gssm].[dbo].[DATA_PRODUCTION_GSSM] a
+        let data = await dbNAT.query(`
+            WITH [rn] AS (
+                SELECT DISTINCT
+                    UPPER(a.[mc_no]) AS [mc_no],
+                    UPPER(a.[process]) AS [process],
+                    CONCAT('LINE ', CAST(RIGHT(a.[mc_no],2) AS INT)) AS [line_no],
+                    3 AS [mc_order],
+                    '6:00:00' AS [shift_start],
+                    b.[ring_factor] AS [count_f],
+                    b.[target_ct] * 1000 AS [ct],
+                    ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
+                FROM [nat_mc_assy_gssm].[dbo].[DATA_PRODUCTION_GSSM] a
                 LEFT JOIN [nat_mc_assy_gssm].[dbo].[DATA_MASTER_GSSM] b ON a.mc_no = b.mc_no
-            ORDER BY
-                a.mc_no
-            `
-           )
+            )
+            SELECT * FROM [rn]
+            where rn = 1
+            ORDER BY [mc_no]
+        `)
            
         // STEP CHECK/INSERT DATA
         if (data[0].length > 0) {
@@ -51,14 +52,14 @@ const getDailySettingReport = async () => {
                 const check = await sequelize.query(
                   `
                   SELECT [process]
-                                  ,[line_name]
-                                  ,[machine_name]
-                                  ,[machine_order]
-                                  ,[shift1_start_time]
-                                  ,[count_factor]
-                                  ,[target_cycle_time_ms]
-                                  ,[registered_at]
-                              FROM [NAT_DX_TO_PICO].[dbo].[GSSM_SETTING]
+                      ,[line_name]
+                      ,[machine_name]
+                      ,[machine_order]
+                      ,[shift1_start_time]
+                      ,[count_factor]
+                      ,[target_cycle_time_ms]
+                      ,[registered_at]
+                  FROM [NAT_DX_TO_PICO].[dbo].[GSSM_SETTING]
                   WHERE machine_name = ?
                   `,
                   {
@@ -69,6 +70,7 @@ const getDailySettingReport = async () => {
               
                 if (check.length === 0) {
                   // ไม่พบ machine นี้ => INSERT ใหม่
+                  console.log([process, line_no, mc_no, mc_order, shift_start, count_f, ct])
                   await sequelize.query(
                     `
                     INSERT INTO [NAT_DX_TO_PICO].[dbo].[GSSM_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
@@ -78,7 +80,8 @@ const getDailySettingReport = async () => {
                       replacements: [process, line_no, mc_no, mc_order, shift_start, count_f, ct]
                     }
                   );
-                } else {
+                } 
+                else {
                   const existing = check[0];
               
                   // check process, line_name, target_cycle_time_ms เหมือนกันหรือไม่
@@ -105,13 +108,11 @@ const getDailySettingReport = async () => {
 
                     await sequelize.query(
                       `
-                      DELETE FROM [NAT_DX_TO_PICO].[dbo].[GSSM_SETTING] WHERE machine_name = ?;
-              
-                      INSERT INTO [NAT_DX_TO_PICO].[dbo].[GSSM_SETTING] ([process], [line_name], [machine_name], [target_cycle_time_ms], [registered_at])
-                      VALUES (?, ?, ?, ?, GETDATE())
+                      INSERT INTO [NAT_DX_TO_PICO].[dbo].[GSSM_SETTING] ([process], [line_name], [machine_name], [machine_order], [shift1_start_time], [count_factor], [target_cycle_time_ms], [registered_at])
+                      VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
                       `,
                       {
-                        replacements: [process, line_no, mc_no, ct]
+                        replacements: [process, line_no, mc_no, mc_order, shift_start, count_f, ct]
                       }
                     );
                   }
@@ -133,7 +134,6 @@ const getDailySettingReport = async () => {
             success: true,
             message: "Can't update data",
         }
-
     }
 }
 
