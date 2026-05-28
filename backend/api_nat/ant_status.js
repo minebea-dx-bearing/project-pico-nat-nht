@@ -76,7 +76,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             ),
 			[merge] AS (
               SELECT
-                LEFT([mc_no], 3) + '0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)) AS [mc_no],
+                LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
                 [occurred],
                 [alarm],
                 [process],
@@ -87,7 +87,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
               FROM [base_alarm_r]
               UNION
               SELECT
-                LEFT([mc_no], 3) + '0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)) AS [mc_no],
+                LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
                 [occurred],
                 [alarm],
                 [process],

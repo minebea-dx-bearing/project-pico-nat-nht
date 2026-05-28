@@ -51,7 +51,7 @@ const getDailySettingReport = async () => {
             ),
             [merge] AS (
               SELECT
-                LEFT([mc_no], 3) + '0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)) AS [mc_no],
+                LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
                 [process],
                 [mc_order],
                 [shift_start],
@@ -61,7 +61,7 @@ const getDailySettingReport = async () => {
               where rn = 1
               UNION
               SELECT
-                LEFT([mc_no], 3) + '0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)) AS [mc_no],
+                LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
                 [process],
                 [mc_order],
                 [shift_start],

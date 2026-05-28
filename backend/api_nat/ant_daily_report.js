@@ -82,7 +82,7 @@ const getDailyReport = async (dateQuery) => {
                         [registered],
                         [operation_day],
                         [shift_mn],
-                        LEFT([mc_no], 3) + ''0'' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)) AS [mc_no],
+                        LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
                         [process],
                         [prod_total_diff]
                     FROM [raw_data_antr] 
@@ -91,7 +91,7 @@ const getDailyReport = async (dateQuery) => {
                         [registered],
                         [operation_day],
                         [shift_mn],
-                        LEFT([mc_no], 3) + ''0'' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)) AS [mc_no],
+                        LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
                         [process],
                         [prod_total_diff]
                     FROM [raw_data_antf]
