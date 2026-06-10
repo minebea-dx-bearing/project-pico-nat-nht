@@ -76,18 +76,18 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             ),
 			[merge] AS (
               SELECT
-                LEFT([mc_no], 3) + '0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)) AS [mc_no],
+                LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
                 [occurred],
                 [alarm],
                 [process],
-                CASE WHEN [status_alarm] = 'RUN REAR' THEN 'RUN'
+				CASE WHEN [status_alarm] = 'RUN REAR' THEN 'RUN'
 					ELSE [status_alarm]
 				END AS [status_alarm],
                 [alarm_type]
               FROM [base_alarm_r]
               UNION
               SELECT
-                LEFT([mc_no], 3) + '0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)) AS [mc_no],
+                LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
                 [occurred],
                 [alarm],
                 [process],
@@ -115,7 +115,15 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             ),
             [base_monitor_iot] AS (
                 SELECT
-                    [mc_no],
+                    LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
+					[process],
+                    [registered],
+                    CAST(broker AS FLOAT) AS [broker_f]
+                FROM [nat_mc_assy_ant_new].[dbo].[MONITOR_IOT]
+                WHERE registered BETWEEN @start_date_p1 AND @end_date_p1
+				UNION
+				SELECT
+                    LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
 					[process],
                     [registered],
                     CAST(broker AS FLOAT) AS [broker_f]
@@ -282,17 +290,17 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                     status_alarm,
                     occurred_start,
                     occurred_end,
-                    CASE 
-                        WHEN DATEPART(HOUR, [occurred_start]) < 6 THEN 
-                            CONVERT(date, DATEADD(DAY, -1, [occurred_start]))
-                        ELSE 
-                            CONVERT(date, [occurred_start])
-                    END AS [date],
-                    CASE 
-                        WHEN CONVERT(TIME, [occurred_start]) BETWEEN @shiftStart AND @shiftStop THEN 'M'
-                        ELSE 'N'
-                    END AS [shift_mn],
-                    DATEDIFF(SECOND, [occurred_start], [occurred_end]) AS [duration_seconds]
+                CASE 
+                    WHEN DATEPART(HOUR, [occurred_start]) < 6 THEN 
+                        CONVERT(date, DATEADD(DAY, -1, [occurred_start]))
+                    ELSE 
+                        CONVERT(date, [occurred_start])
+                END AS [date],
+                CASE 
+                    WHEN CONVERT(TIME, [occurred_start]) BETWEEN @shiftStart AND @shiftStop THEN 'M'
+                    ELSE 'N'
+                END AS [shift_mn],
+                DATEDIFF(SECOND, [occurred_start], [occurred_end]) AS [duration_seconds]
                 FROM [filter_result] f
             )
                     
@@ -396,6 +404,6 @@ const getDaily = async (dateToday) => {
  
 // เรียกใช้
 // getDaily('2025-09-01'); 
-// NewStatusGetDailyStatusReport('2026-04-07');
+// NewStatusGetDailyStatusReport('2026-05-28');
 
 module.exports = router;
