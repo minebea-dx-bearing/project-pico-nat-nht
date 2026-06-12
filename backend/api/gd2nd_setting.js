@@ -37,122 +37,132 @@ const getDailySettingReport = async () => {
   try {
     let data = await sequelize.query(
       `
-      SELECT
-          'GD' AS[process],
-          CONCAT('LINE ', line_no) AS line_no,
-          m.[mc_no],
-          m.[part_no],
-          CASE WHEN m.[mc_no] LIKE '%B' THEN
-              1
-          WHEN m.[mc_no] LIKE '%R' THEN
-              2
-          WHEN m.[mc_no] LIKE '%H' THEN
-              3
-          ELSE
-              1
-          END AS[mc_order],
-          '7:00:00' AS shift_start,
+      WITH result AS (
+          SELECT
+              'GD' AS[process],
+              CONCAT('LINE ', line_no) AS line_no,
+              m.[mc_no],
+              m.[part_no],
+              CASE WHEN m.[mc_no] LIKE '%B' THEN
+                  1
+              WHEN m.[mc_no] LIKE '%R' THEN
+                  2
+              WHEN m.[mc_no] LIKE '%H' THEN
+                  3
+              ELSE
+                  1
+              END AS[mc_order],
+              '7:00:00' AS shift_start,
       [ring_factor] AS count_f,
-          LEFT (CAST([target_ct] * 100 AS varchar(4)) + '0000',
-              4) AS ct
-      FROM
+              LEFT (CAST([target_ct] * 100 AS varchar(4)) + '0000',
+                  4) AS ct,
+              ROW_NUMBER() OVER (PARTITION BY m.[mc_no] ORDER BY m.[registered] DESC) AS rn
+          FROM
       [data_machine_gd2].[dbo].[DATA_MASTER_GD] m
-          LEFT JOIN[data_machine_gd2].[dbo].[master_mc_run_parts] p ON m.mc_no COLLATE DATABASE_DEFAULT = p.mc_no COLLATE DATABASE_DEFAULT
-
+              LEFT JOIN[data_machine_gd2].[dbo].[master_mc_run_parts] p ON m.mc_no COLLATE DATABASE_DEFAULT = p.mc_no COLLATE DATABASE_DEFAULT
+      )
+      SELECT
+          *
+      FROM
+          result
+      WHERE
+          rn = 1
+      ORDER BY
+          mc_no
   `
-    //   `
-    //     SELECT
-    //         'GD' AS [process],
-    //         CONCAT('LINE ', line_no) AS line_no,
-    //         [mc_no],
-    //         CASE WHEN mc_no LIKE '%B' THEN 1
-    //             WHEN mc_no LIKE '%R' THEN 2
-    //             WHEN mc_no LIKE '%H' THEN 3
-    //             ELSE 1
-    //         END AS [mc_order],
-    //         '7:00:00' AS shift_start,
-    //         1 AS count_f,
-    //         CASE WHEN mc_no LIKE 'IC-52%'
-    //             OR mc_no LIKE 'IR58%'
-    //             OR mc_no LIKE 'IR64%'
-    //             OR mc_no LIKE 'OC24H%'
-    //             OR mc_no LIKE 'OC45H%' THEN
-    //             2000
-    //         WHEN mc_no LIKE 'IC01%'
-    //             OR mc_no LIKE 'IC02%'
-    //             OR mc_no LIKE 'IC03%'
-    //             OR mc_no LIKE 'IC04%'
-    //             OR mc_no LIKE 'IC05%'
-    //             OR mc_no LIKE 'IC06%'
-    //             OR mc_no LIKE 'IC07%'
-    //             OR mc_no LIKE 'IC08%'
-    //             OR mc_no LIKE 'IC09%'
-    //             OR mc_no LIKE 'IC10%'
-    //             OR mc_no LIKE 'IC11%'
-    //             OR mc_no LIKE 'IC12%'
-    //             OR mc_no LIKE 'IC13%'
-    //             OR mc_no LIKE 'IC14%'
-    //             OR mc_no LIKE 'IC15%'
-    //             OR mc_no LIKE 'IC16%'
-    //             OR mc_no LIKE 'IC18%'
-    //             OR mc_no LIKE 'IC19%'
-    //             OR mc_no LIKE 'IC21%'
-    //             OR mc_no LIKE 'IC23%'
-    //             OR mc_no LIKE 'IC24%'
-    //             OR mc_no LIKE 'IC25%'
-    //             OR mc_no LIKE 'IC26%'
-    //             OR mc_no LIKE 'IC27%'
-    //             OR mc_no LIKE 'IC28%'
-    //             OR mc_no LIKE 'IC29%'
-    //             OR mc_no LIKE 'IC30%'
-    //             OR mc_no LIKE 'IC31%'
-    //             OR mc_no LIKE 'IC33%'
-    //             OR mc_no LIKE 'IC34%'
-    //             OR mc_no LIKE 'IC35%'
-    //             OR mc_no LIKE 'IC36%'
-    //             OR mc_no LIKE 'IC37%'
-    //             OR mc_no LIKE 'IC38%'
-    //             OR mc_no LIKE 'IC39%'
-    //             OR mc_no LIKE 'IC40%'
-    //             OR mc_no LIKE 'IC41%'
-    //             OR mc_no LIKE 'IC42%'
-    //             OR mc_no LIKE 'IC43%'
-    //             OR mc_no LIKE 'IC45%'
-    //             OR mc_no LIKE 'IC46%'
-    //             OR mc_no LIKE 'IC47%'
-    //             OR mc_no LIKE 'IC48%'
-    //             OR mc_no LIKE 'IC49%'
-    //             OR mc_no LIKE 'IC50%'
-    //             OR mc_no LIKE 'IC51%'
-    //             OR mc_no LIKE 'IR44%'
-    //             OR mc_no LIKE 'IR46%'
-    //             OR mc_no LIKE 'IR47%'
-    //             OR mc_no LIKE 'IR48%'
-    //             OR mc_no LIKE 'IR50%'
-    //             OR mc_no LIKE 'IR51%'
-    //             OR mc_no LIKE 'IR52%'
-    //             OR mc_no LIKE 'IR54%'
-    //             OR mc_no LIKE 'IR55%'
-    //             OR mc_no LIKE 'IR56%'
-    //             OR mc_no LIKE 'IR57%'
-    //             OR mc_no LIKE 'IR59%'
-    //             OR mc_no LIKE 'IR60%'
-    //             OR mc_no LIKE 'IR61%' THEN
-    //             2370
-    //         WHEN mc_no LIKE 'IC17%'
-    //             OR mc_no LIKE 'IC32%'
-    //             OR mc_no LIKE 'IR49%'
-    //             OR mc_no LIKE 'IR53%' THEN
-    //             2600
-    //         WHEN mc_no LIKE 'IC20%'
-    //             OR mc_no LIKE 'IC22%' THEN
-    //             3400
-    //         ELSE
-    //             NULL
-    //         END AS ct
-    //     FROM [data_machine_gd2].[dbo].[master_mc_run_parts]
-    // `
-  );
+      //   `
+      //     SELECT
+      //         'GD' AS [process],
+      //         CONCAT('LINE ', line_no) AS line_no,
+      //         [mc_no],
+      //         CASE WHEN mc_no LIKE '%B' THEN 1
+      //             WHEN mc_no LIKE '%R' THEN 2
+      //             WHEN mc_no LIKE '%H' THEN 3
+      //             ELSE 1
+      //         END AS [mc_order],
+      //         '7:00:00' AS shift_start,
+      //         1 AS count_f,
+      //         CASE WHEN mc_no LIKE 'IC-52%'
+      //             OR mc_no LIKE 'IR58%'
+      //             OR mc_no LIKE 'IR64%'
+      //             OR mc_no LIKE 'OC24H%'
+      //             OR mc_no LIKE 'OC45H%' THEN
+      //             2000
+      //         WHEN mc_no LIKE 'IC01%'
+      //             OR mc_no LIKE 'IC02%'
+      //             OR mc_no LIKE 'IC03%'
+      //             OR mc_no LIKE 'IC04%'
+      //             OR mc_no LIKE 'IC05%'
+      //             OR mc_no LIKE 'IC06%'
+      //             OR mc_no LIKE 'IC07%'
+      //             OR mc_no LIKE 'IC08%'
+      //             OR mc_no LIKE 'IC09%'
+      //             OR mc_no LIKE 'IC10%'
+      //             OR mc_no LIKE 'IC11%'
+      //             OR mc_no LIKE 'IC12%'
+      //             OR mc_no LIKE 'IC13%'
+      //             OR mc_no LIKE 'IC14%'
+      //             OR mc_no LIKE 'IC15%'
+      //             OR mc_no LIKE 'IC16%'
+      //             OR mc_no LIKE 'IC18%'
+      //             OR mc_no LIKE 'IC19%'
+      //             OR mc_no LIKE 'IC21%'
+      //             OR mc_no LIKE 'IC23%'
+      //             OR mc_no LIKE 'IC24%'
+      //             OR mc_no LIKE 'IC25%'
+      //             OR mc_no LIKE 'IC26%'
+      //             OR mc_no LIKE 'IC27%'
+      //             OR mc_no LIKE 'IC28%'
+      //             OR mc_no LIKE 'IC29%'
+      //             OR mc_no LIKE 'IC30%'
+      //             OR mc_no LIKE 'IC31%'
+      //             OR mc_no LIKE 'IC33%'
+      //             OR mc_no LIKE 'IC34%'
+      //             OR mc_no LIKE 'IC35%'
+      //             OR mc_no LIKE 'IC36%'
+      //             OR mc_no LIKE 'IC37%'
+      //             OR mc_no LIKE 'IC38%'
+      //             OR mc_no LIKE 'IC39%'
+      //             OR mc_no LIKE 'IC40%'
+      //             OR mc_no LIKE 'IC41%'
+      //             OR mc_no LIKE 'IC42%'
+      //             OR mc_no LIKE 'IC43%'
+      //             OR mc_no LIKE 'IC45%'
+      //             OR mc_no LIKE 'IC46%'
+      //             OR mc_no LIKE 'IC47%'
+      //             OR mc_no LIKE 'IC48%'
+      //             OR mc_no LIKE 'IC49%'
+      //             OR mc_no LIKE 'IC50%'
+      //             OR mc_no LIKE 'IC51%'
+      //             OR mc_no LIKE 'IR44%'
+      //             OR mc_no LIKE 'IR46%'
+      //             OR mc_no LIKE 'IR47%'
+      //             OR mc_no LIKE 'IR48%'
+      //             OR mc_no LIKE 'IR50%'
+      //             OR mc_no LIKE 'IR51%'
+      //             OR mc_no LIKE 'IR52%'
+      //             OR mc_no LIKE 'IR54%'
+      //             OR mc_no LIKE 'IR55%'
+      //             OR mc_no LIKE 'IR56%'
+      //             OR mc_no LIKE 'IR57%'
+      //             OR mc_no LIKE 'IR59%'
+      //             OR mc_no LIKE 'IR60%'
+      //             OR mc_no LIKE 'IR61%' THEN
+      //             2370
+      //         WHEN mc_no LIKE 'IC17%'
+      //             OR mc_no LIKE 'IC32%'
+      //             OR mc_no LIKE 'IR49%'
+      //             OR mc_no LIKE 'IR53%' THEN
+      //             2600
+      //         WHEN mc_no LIKE 'IC20%'
+      //             OR mc_no LIKE 'IC22%' THEN
+      //             3400
+      //         ELSE
+      //             NULL
+      //         END AS ct
+      //     FROM [data_machine_gd2].[dbo].[master_mc_run_parts]
+      // `
+    );
 
     // STEP CHECK/INSERT DATA
     if (data[0].length > 0) {
@@ -188,7 +198,15 @@ const getDailySettingReport = async () => {
                     VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
                     `,
             {
-              replacements: [process, line_no, mc_no, mc_order, shift_start, count_f ?? 1, ct || 0]
+              replacements: [
+                process,
+                line_no,
+                mc_no,
+                mc_order,
+                shift_start,
+                count_f ?? 1,
+                ct || 0,
+              ],
             }
           );
         } else {
@@ -220,14 +238,22 @@ const getDailySettingReport = async () => {
               VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
               `,
               {
-                replacements: [process, line_no, mc_no, mc_order, shift_start, count_f ?? 1, ct || 0]
+                replacements: [
+                  process,
+                  line_no,
+                  mc_no,
+                  mc_order,
+                  shift_start,
+                  count_f ?? 1,
+                  ct || 0,
+                ],
               }
             );
           }
           // ถ้าเหมือน => ไม่ต้องทำอะไร
         }
       }
-    console.log("NHT - GD2ND - setting OK");
+      console.log("NHT - GD2ND - setting OK");
       return {
         data: data[0],
         success: true,
@@ -347,6 +373,5 @@ router.get("gd_setting_to_insert", async (res, req) => {
     console.log(error.message);
   }
 });
-
 
 module.exports = router;

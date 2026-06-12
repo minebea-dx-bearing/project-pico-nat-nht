@@ -1,33 +1,49 @@
 // For New Notebook
 const express = require("express");
 const sequelize = require("../instance/db");
-const cron = require('node-cron');
-const moment = require('moment-timezone');
+const cron = require("node-cron");
+const moment = require("moment-timezone");
 
 const router = express.Router();
 
-cron.schedule('1 7 * * *', async () => {
+cron.schedule(
+  "1 7 * * *",
+  async () => {
     let dateToday;
-    const hours = parseInt(moment().tz('Asia/Bangkok').format('HH'), 10);
+    const hours = parseInt(moment().tz("Asia/Bangkok").format("HH"), 10);
 
     if (hours <= 7) {
-        dateToday = moment().tz('Asia/Bangkok').subtract(1, "days").format("YYYY-MM-DD");
+      dateToday = moment()
+        .tz("Asia/Bangkok")
+        .subtract(1, "days")
+        .format("YYYY-MM-DD");
     } else {
-        dateToday = moment().tz('Asia/Bangkok').format("YYYY-MM-DD");
+      dateToday = moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
     }
 
-    await NewStatusGetDailyStatusReport(dateToday); // For All M/C 
-    console.log("NHT - AVS - New Running data status cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
-}, {
-    timezone: "Asia/Bangkok"
-});
+    await NewStatusGetDailyStatusReport(dateToday); // For All M/C
+    console.log(
+      "NHT - AVS - New Running data status cron job for date:",
+      dateToday,
+      hours,
+      moment().tz("Asia/Bangkok").format("YYYY-MM-DD HH:mm:ss")
+    );
+  },
+  {
+    timezone: "Asia/Bangkok",
+  }
+);
 
 const NewStatusGetDailyStatusReport = async (dateQuery) => {
-    let dateToday = dateQuery;
-    let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
-    console.log("NHT - AVS - Use date in NewStatusGetDailyStatusReport...", dateToday, dateTomorrow);
-    try {
-        let data = await sequelize.query(`
+  let dateToday = dateQuery;
+  let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
+  console.log(
+    "NHT - AVS - Use date in NewStatusGetDailyStatusReport...",
+    dateToday,
+    dateTomorrow
+  );
+  try {
+    let dataMD = await sequelize.query(`
             DECLARE @start_date DATETIME = '${dateToday} 06:00'; -- เปลี่ยนวันที่ด้วย
             DECLARE @TargetEndDate DATETIME = '${dateTomorrow} 06:00'; -- เปลี่ยนวันที่ด้วย
             DECLARE @end_date DATETIME = CASE WHEN @TargetEndDate > GETDATE()
@@ -279,13 +295,264 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                 ,[status_alarm]
             ORDER BY [operation_day], [machine_name], [status_name]
         `);
-        // console.log(data);
-        
-        // STEP INSERT DATA
-        if (data[0].length > 0) {
-            const result = data[0]
-            for (let index = 0; index < result.length; index++) {
-                await sequelize.query(`
+    let dataMA = await sequelize.query(`
+            
+            DECLARE @start_date DATETIME = '${dateToday} 06:00:00';
+            DECLARE @end_date DATETIME = '${dateTomorrow} 06:00:00';
+
+            -- ดึง status ก่อน-หลัง 1hr
+            DECLARE @start_date_before DATETIME = DATEADD(HOUR, -1, @start_date);
+
+            DECLARE @end_min_check_status DATETIME = DATEADD(MINUTE, 1, @start_date); -- เอาไว้เช็ค monitor iot ตอน 7 โมงเพราะมันไม่ได้ insert 07:00:00:000 เป๊ะ
+
+            DECLARE @shift1 NVARCHAR(50) = '07:00:00';
+            DECLARE @shift2 NVARCHAR(50) = '19:00:00'; -- เขียนแบบนี้เพราะใช้ between check
+
+            WITH [status] AS (
+                SELECT 
+                    [mc_no],
+                    [process],
+                    [occurred],
+                    CASE WHEN DATEPART(HOUR, [occurred]) < 7 THEN CONVERT(date, DATEADD(DAY, -1, [occurred]))
+                        ELSE CONVERT(date, [occurred])
+                    END AS [work_date],
+                    [mc_status],
+                    [occurred] AS [occurred_start]
+                FROM [data_machine_avs].[dbo].[DATA_MCSTATUS_AVS]
+                WHERE registered BETWEEN @start_date and @end_date AND mc_no like 'AVSMA%'
+            )
+			,
+            [all_mc] AS (
+                SELECT DISTINCT [mc_no]
+                FROM [data_machine_avs].[dbo].[DATA_MASTER_AVS]
+            ),
+            [monitor_iot] AS (
+                SELECT
+                    [mc_no],
+                    [process],
+                    CASE WHEN DATEPART(HOUR, [registered]) < 7 THEN CONVERT(date, DATEADD(DAY, -1, [registered]))
+                        ELSE CONVERT(date, [registered])
+                    END AS [work_date],
+                    [registered],
+                    CAST([broker] AS FLOAT) AS [broker],
+                    LAG(CAST([broker] AS FLOAT)) OVER (PARTITION BY [mc_no] ORDER BY [registered]) AS [broker_prv]
+                FROM [data_machine_avs].[dbo].[MONITOR_IOT]
+                WHERE registered BETWEEN @start_date_before and @end_date AND mc_no like 'AVSMA%'
+            )
+			,
+
+            [first_status] AS (
+                -- เอา status สุดท้ายก่อนที่จะถึง @start_date มา
+                SELECT 
+                    [mc_no],
+                    [process],
+                    CONVERT(date, [occurred]) AS [work_date],
+                    [mc_status],
+                    CAST(CAST(@start_date AS DATE) AS DATETIME) AS [occurred_start],
+                    ROW_NUMBER() OVER (PARTITION BY [mc_no] ORDER BY occurred desc) as rn
+                FROM [data_machine_avs].[dbo].[DATA_MCSTATUS_AVS]
+                where [occurred] < @start_date and [occurred] >= DATEADD(DAY, -1, @start_date) AND mc_no like 'AVSMA%'
+            )
+			,
+            [merge_status] AS (
+                -- เพิ่ม connection loss เข้ามาโดยเช็ค broker จาก monitor_iot
+                SELECT 
+                    [mc_no],
+                    [process],
+                    [work_date],
+                    [mc_status],
+                    [occurred_start]
+                FROM [status]
+                UNION ALL
+                SELECT 
+                    [mc_no],
+                    [process],
+                    [work_date],
+                    'connection lost' AS [mc_status],
+                    [registered] AS [occurred_start]
+                FROM [monitor_iot]
+                WHERE ([broker_prv] = 1 AND [broker] = 0 AND [registered] BETWEEN @start_date AND @end_date) 
+                OR ([registered] BETWEEN @start_date AND @end_min_check_status AND [broker_prv] = 0 AND [broker] = 0)
+                -- ถ้า broker = 0 ก่อน 7 โมงก็ให้เพิ่ม connection loss ด้วย
+                UNION ALL
+                -- เพิ่ม connection lost สำหรับเครื่องที่ไม่มี status ส่งมาเลย
+                SELECT 
+                    a.[mc_no],
+                    'AVS' AS [process],
+                    CAST(@start_date AS DATE) AS [work_date],
+                    'connection lost' AS [mc_status],
+                    @start_date AS [occurred_start]
+                FROM [all_mc] a
+                WHERE NOT EXISTS(SELECT 1 FROM [status] s WHERE s.[mc_no] = a.[mc_no])
+                UNION ALL
+                -- เมื่อกล่องเปลี่ยนจาก 0 เป็น 1 แต่ไม่มี status ส่งมาในรอบ +- 5 นาที ให้ดึง status ล่าสุดก่อนหน้านั้นมาใส่
+                SELECT 
+                    m.[mc_no],
+                    m.[process],
+                    m.[work_date], 
+                    CASE WHEN NOT EXISTS (
+                            SELECT 1 FROM [data_machine_avs].[dbo].[DATA_MCSTATUS_AVS] s
+                            WHERE s.[mc_no] = m.[mc_no]
+                            AND (s.[occurred] > m.[registered] OR s.[occurred] BETWEEN DATEADD(MINUTE, -5, m.[registered]) AND DATEADD(MINUTE, 5, m.[registered]))
+                            AND s.[occurred] <= @end_date AND mc_no like 'AVSMA%'
+                        ) THEN 'connection lost' --ถ้าหลังจาก broker กลับมาเป็น 1 แต่ไม่มี status ส่งมาเลย ให้เป็น connection lost
+                        ELSE ISNULL(last_s.[mc_status], 'connection lost')
+                    END AS [mc_status],
+                    m.[registered] AS [occurred_start]
+                FROM [monitor_iot] m
+                OUTER APPLY (
+                    SELECT TOP 1 
+                        s.[mc_status],
+                        MAX(CASE WHEN s.[occurred] BETWEEN DATEADD(MINUTE, -5, m.[registered]) AND DATEADD(MINUTE, 5, m.[registered]) THEN 1 ELSE 0 END) OVER() as has_current_status
+                    FROM [data_machine_avs].[dbo].[DATA_MCSTATUS_AVS] s
+                    WHERE s.[mc_no] = m.[mc_no]
+                    AND s.[occurred] <= DATEADD(MINUTE, 5, m.[registered])
+                    AND s.[occurred] >= DATEADD(DAY, -1, m.[registered])  --ดึงข้อมูลเก่าล่าสุดมาโดยไม่เกิน 1 วันก่อนหน้า 
+                    ORDER BY s.[occurred] DESC
+                ) last_s
+                WHERE m.[broker_prv] = 0 AND m.[broker] = 1
+                AND m.[registered] BETWEEN @start_date AND @end_date
+                AND (last_s.has_current_status IS NULL OR last_s.has_current_status = 0)
+                AND mc_no like 'AVSMA%'
+            )
+			,
+            [first_merge_status] AS (
+                -- เอาตัวแรกของ status จาก [merge_status]
+                SELECT 
+                    [mc_no],
+                    [process],
+                    [work_date],
+                    [mc_status],
+                    [occurred_start],
+                    ROW_NUMBER() OVER (PARTITION BY [mc_no] ORDER BY [occurred_start]) as rn
+                FROM [merge_status]
+            ),
+            [merge_all] AS (
+                -- เอา [first_status] มาใส่เมื่อตั้วแรกที่ดึงจาก [first_merge_status] ไม่ใช่ connection lost และต้องเช็คให้เป็น m/c เครื่องเดียวกัน
+                SELECT * FROM [merge_status]
+                UNION ALL
+                SELECT 
+                    [mc_no],
+                    [process],
+                    [work_date],
+                    [mc_status],
+                    [occurred_start]
+                FROM [first_status] s
+                WHERE s.rn = 1 
+                AND EXISTS (
+                    SELECT 1 FROM [first_merge_status] m
+                    WHERE m.[mc_no] = s.[mc_no] 
+                    AND m.rn = 1 
+                    AND NOT (
+                        m.[mc_status] = 'connection lost' 
+                        AND m.[occurred_start] BETWEEN @start_date AND @end_min_check_status)
+                )
+                --order by mc_no, occurred_start
+            ),
+            [set_occurred] AS (
+                -- เอา [occurred_start] ของ status ต่อไปมาเป็น [occurred_end] ของ status ปัจุบัน
+                SELECT 
+                    *,
+                    LEAD([occurred_start]) OVER (PARTITION BY [mc_no] ORDER BY [occurred_start]) AS [occurred_end]
+                FROM [merge_all]
+            ),
+            [set_time] AS (
+                -- set เวลา status แรกให้เป็นตาม @start_date และ status สุดท้ายให้เป็นตาม @end_date
+                SELECT
+                    [mc_no],
+                    [process],
+                    CAST(@start_date AS DATE) AS [work_date],
+                    [mc_status],
+                    CASE 
+                        WHEN ([occurred_start] < @start_date)
+                            OR [mc_status] = 'connection lost' AND [occurred_start] BETWEEN @start_date AND @end_min_check_status
+                        THEN @start_date
+                        ELSE [occurred_start]
+                    END AS [occurred_start],
+                    CASE 
+                        WHEN ([occurred_end] IS NULL AND [occurred_start] BETWEEN @start_date AND @end_min_check_status)
+                            OR ([occurred_end] IS NULL)
+                        THEN @end_date
+                        ELSE [occurred_end]
+                    END AS [occurred_end]
+                FROM [set_occurred]
+                WHERE ([occurred_end] > @start_date AND [occurred_start] < @end_date) OR [mc_status] = 'connection lost' OR [occurred_end] IS NULL
+            ),
+            [shift] AS (
+                SELECT
+                    *,
+                    CASE WHEN CONVERT(TIME, [occurred_start]) BETWEEN @shift1 AND @shift2 THEN 'M'
+                        ELSE 'N'
+                    END AS [shift],
+                    DATEADD(HOUR, 19, CAST(CAST([occurred_start] AS DATE) AS DATETIME)) AS [split_shift]
+                FROM [set_time]
+            ),
+            [split_shift] AS (
+                -- แยก status ที่เกิดคร่อมเวลากะ(1 ทุ่ม) ออกเป็น 2 อันให้จบที่ 19:00 และเริ่มที่ 19:00
+                SELECT 
+                    s.[mc_no], 
+                    s.[process], 
+                    s.[work_date], 
+                    s.[mc_status],
+                    v.[occurred_start], 
+                    v.[occurred_end], 
+                    v.[shift]
+                FROM [shift] s
+                CROSS APPLY (
+                    -- เคสที่ 1: ข้อมูลไม่คร่อม 1 ทุ่ม (อยู่ก่อน หรือ อยู่หลัง ไปเลย)
+                    SELECT s.[occurred_start], s.[occurred_end], s.[shift]
+                    WHERE s.[occurred_start] >= s.[split_shift] OR s.[occurred_end] <= s.[split_shift]
+                    UNION ALL
+                    -- เคสที่ 2: ข้อมูลคร่อม 1 ทุ่ม (ท่อนแรก: ก่อน 1 ทุ่ม)
+                    SELECT s.[occurred_start], s.[split_shift], s.[shift]
+                    WHERE s.[split_shift] BETWEEN s.[occurred_start] AND s.[occurred_end] AND s.[occurred_start] < s.[split_shift] AND s.[occurred_end] > s.[split_shift]
+                    UNION ALL
+                    -- เคสที่ 3: ข้อมูลคร่อม 1 ทุ่ม (ท่อนสอง: หลัง 1 ทุ่มเปลี่ยนเป็นกะ N)
+                    SELECT s.[split_shift], s.[occurred_end], 'N'
+                    WHERE s.[split_shift] BETWEEN s.[occurred_start] AND s.[occurred_end] AND s.[occurred_start] < s.[split_shift] AND s.[occurred_end] > s.[split_shift]
+                ) v
+            ),
+
+            [calc] AS (
+                SELECT 
+                    *,
+                    DATEDIFF(SECOND, [occurred_start], [occurred_end]) AS [diff_sec]
+                FROM [split_shift]
+            )
+			--select * from [calc]
+                SELECT
+                    [work_date] AS [operation_day]
+                    ,'true' AS [is_operation_day]
+                    ,UPPER([process]) AS [process]
+                    ,CONCAT('LINE ', CAST(RIGHT([mc_no], 2) AS INT)) AS line_name
+                    ,UPPER([mc_no]) AS [machine_name]
+                    ,UPPER([mc_status]) AS [status_name]
+                    ,SUM([diff_sec]) AS [daily_duration_s]
+                    ,COUNT([mc_status]) AS [daily_count]
+                    ,SUM(CASE WHEN [shift] = 'M' OR [shift] = 'A' THEN [diff_sec] ELSE 0 END) AS [shift1_duration_s]
+                    ,SUM(CASE WHEN [shift] = 'M' OR [shift] = 'A' THEN 1 ELSE 0 END) AS [shift1_count]
+                    ,SUM(CASE WHEN [shift] = 'N' OR [shift] = 'B' THEN [diff_sec] ELSE 0 END) AS [shift2_duration_s]
+                    ,SUM(CASE WHEN [shift] = 'N' OR [shift] = 'B' THEN 1 ELSE 0 END) AS [shift2_count]
+                    ,SUM(CASE WHEN [shift] = 'C' THEN [diff_sec] ELSE 0 END) AS [shift3_duration_s]
+                    ,SUM(CASE WHEN [shift] = 'C' THEN 1 ELSE 0 END) AS [shift3_count]
+                FROM [calc]
+                WHERE mc_no like 'AVSMA%'
+                GROUP BY
+                    [mc_no]
+                    ,[process]
+                    ,[work_date]
+                    ,[mc_status]
+                ORDER BY [operation_day], [machine_name], [status_name]
+            `);
+
+    let data = [...dataMA[0], ...dataMD[0]];
+    // console.log(data);
+
+    // STEP INSERT DATA
+    if (data.length > 0) {
+      const result = data;
+      for (let index = 0; index < result.length; index++) {
+        await sequelize.query(`
                     INSERT INTO [NHT_DX_TO_PICO].[dbo].[AVS_DAILY_STATUS_REPORT] ([operation_day],[is_operation_day],[process],[line_name],[machine_name],[status_name],[daily_duration_s],[daily_count],[shift1_duration_s],[shift1_count],[shift2_duration_s],[shift2_count],[shift3_duration_s],[shift3_count],[registered_at])
                     SELECT
                         '${result[index].operation_day}',
@@ -314,47 +581,47 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                                 AND [daily_duration_s] = ${result[index].daily_duration_s}
                                 AND [daily_count] = ${result[index].daily_count});
                 `);
-            }
-            console.log("NHT - AVS - Insert status new Done!");
-            return {
-                data: data[0],
-                success: true,
-                message: "Update data complete",
-            }
-        } else {
-            console.log("NHT - AVS - Can't new insert : Length = 0");
-        }
-    } catch (error) {
-        console.log("NHT - AVS - new status insert error:", error);
-        return {
-            data: error.message,
-            success: true,
-            message: "Can't update data",
-        }
+      }
+      console.log("NHT - AVS - Insert status new Done!");
+      return {
+        data: data[0],
+        success: true,
+        message: "Update data complete",
+      };
+    } else {
+      console.log("NHT - AVS - Can't new insert : Length = 0");
     }
-}
+  } catch (error) {
+    console.log("NHT - AVS - new status insert error:", error);
+    return {
+      data: error.message,
+      success: true,
+      message: "Can't update data",
+    };
+  }
+};
 
 const getDaily = async (dateToday) => {
-    const date = new Date(dateToday);
-    const year = date.getFullYear();
-    const month = date.getMonth(); // เดือนเริ่มจาก 0 (มกราคม = 0)
+  const date = new Date(dateToday);
+  const year = date.getFullYear();
+  const month = date.getMonth(); // เดือนเริ่มจาก 0 (มกราคม = 0)
 
-    // หาวันสุดท้ายของเดือนนี้
-    const lastDay = new Date(year, month + 1, 0).getDate();
+  // หาวันสุดท้ายของเดือนนี้
+  const lastDay = new Date(year, month + 1, 0).getDate();
 
-    // วนลูปทุกวันในเดือนนี้
-    for (let day = 0; day <= lastDay; day++) {
-        // สร้างวันที่ในรูปแบบ 'YYYY-MM-DD'
-        const currentDate = new Date(year, month, day);
-        const formatted = currentDate.toISOString().split('T')[0];
-        console.log(formatted);
-        await NewStatusGetDailyStatusReport(formatted);
-        console.log("ok");
-    }
-}
- 
+  // วนลูปทุกวันในเดือนนี้
+  for (let day = 0; day <= lastDay; day++) {
+    // สร้างวันที่ในรูปแบบ 'YYYY-MM-DD'
+    const currentDate = new Date(year, month, day);
+    const formatted = currentDate.toISOString().split("T")[0];
+    console.log(formatted);
+    await NewStatusGetDailyStatusReport(formatted);
+    console.log("ok");
+  }
+};
+
 // เรียกใช้
-// getDaily('2025-09-01'); 
-// NewStatusGetDailyStatusReport('2026-05-25'); // For Test
+// getDaily('2025-09-01');
+// NewStatusGetDailyStatusReport('2026-06-12'); // For Test
 
 module.exports = router;
