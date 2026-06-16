@@ -14,7 +14,7 @@ const sequelize = new Sequelize("NHT_DX_TO_PICO", "sa", "Nhtsa@admin", {
     options: {
       instanceName: "",
       encrypt: false,
-      requestTimeout: 300000, // เพิ่ม timeout เป็น 5 นาที
+      requestTimeout: 450000, // เพิ่ม timeout เป็น 5 นาที
       connectTimeout: 600000, // 600 วินาที หรือ 10 นาที
     },
   },

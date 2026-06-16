@@ -8,7 +8,7 @@ const router = express.Router();
 
 //* ไม่ run 7:00 เพราะ data เข้า DB ไม่ทัน
 
-cron.schedule('1 7 * * *', async () => {
+cron.schedule('3 7 * * *', async () => {
     let dateToday;
     const hours = parseInt(moment().tz('Asia/Bangkok').format('HH'), 10);
 
@@ -82,7 +82,7 @@ const getDailyReport = async (dateQuery) => {
                         [registered],
                         [operation_day],
                         [shift_mn],
-                        LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
+                        LEFT([mc_no], 3) + RIGHT(0 + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
                         [process],
                         [prod_total_diff]
                     FROM [raw_data_antr] 
@@ -91,7 +91,7 @@ const getDailyReport = async (dateQuery) => {
                         [registered],
                         [operation_day],
                         [shift_mn],
-                        LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
+                        LEFT([mc_no], 3) + RIGHT(0 + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
                         [process],
                         [prod_total_diff]
                     FROM [raw_data_antf]
@@ -120,7 +120,11 @@ const getDailyReport = async (dateQuery) => {
                     [operation_day],
                     ''true'' AS [is_operation_day],
                     UPPER([process]) AS [process],
-                    CONCAT(''LINE '', ' + @LineName + ') AS [line_name],
+                    CASE 
+                        WHEN PATINDEX(''%[0-9]%'', s.[mc_no]) > 0 
+                        THEN CONCAT(''LINE '', SUBSTRING(s.[mc_no], PATINDEX(''%[0-9]%'', s.[mc_no]), LEN(s.[mc_no])))
+                        ELSE s.[mc_no] 
+                    END AS [line_name],
                     UPPER(s.[mc_no]) AS [machine_name],
 
                     0 AS [daily_target_production_qty],

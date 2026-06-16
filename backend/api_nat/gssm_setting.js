@@ -6,7 +6,7 @@ const dbNAT = require("../instance/db_nat");
 
 const router = express.Router();
 
-cron.schedule('1 7 * * *', async () => {
+cron.schedule('5 7 * * *', async () => {
     let dateToday;
     const hours = parseInt(moment().tz('Asia/Bangkok').format('HH'), 10);
 
