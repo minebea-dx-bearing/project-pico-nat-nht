@@ -23,6 +23,7 @@ cron.schedule('3 7 * * *', async () => {
     timezone: "Asia/Bangkok"
 });
 
+// Run 'WANTMA' Only เพราะ wait new box
 const getDailyReport = async (dateQuery) => {
     let dateToday = dateQuery;
     let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
@@ -57,6 +58,7 @@ const getDailyReport = async (dateQuery) => {
                         END AS [prod_total_diff]
                     FROM ' + @Database + '
                     WHERE [registered] BETWEEN ''${dateToday} 06:00'' AND ''${dateTomorrow} 07:00''
+                    AND [mc_no] LIKE ''WANTMA%''
                 ),
                 [calc_shift] AS (
                     SELECT

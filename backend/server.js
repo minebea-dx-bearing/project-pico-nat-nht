@@ -29,9 +29,10 @@ app.use("/api/an_status", require("./api/an_status"));
 app.use("/api/an_daily_report", require("./api/an_daily_report"));
 
 // AOD NHT
-app.use("/api/aod_setting", require("./api/aod_setting"));
-app.use("/api/aod_status", require("./api/aod_status"));
-app.use("/api/aod_daily_report", require("./api/aod_daily_report"));
+// ไม่ส่ง เพราะมี box เดียว [wait new box]
+// app.use("/api/aod_setting", require("./api/aod_setting"));
+// app.use("/api/aod_status", require("./api/aod_status"));
+// app.use("/api/aod_daily_report", require("./api/aod_daily_report"));
 
 // AVS NHT
 app.use("/api/avs_setting", require("./api/avs_setting"));
