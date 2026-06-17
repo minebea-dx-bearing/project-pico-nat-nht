@@ -131,7 +131,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                 SELECT
                     [mc_no],
 					MAX([process]) AS [process],
-                    'connection lose' AS [status_alarm],
+                    'connection lost' AS [status_alarm],
                     MIN(registered) AS [occurred_start],
                     MAX(CASE WHEN [end_flag] = 1 THEN ISNULL([next_registered], [registered]) END) AS [occurred_end]
                 FROM [grpz]
