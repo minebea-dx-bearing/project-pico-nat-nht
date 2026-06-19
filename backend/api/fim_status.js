@@ -1,33 +1,49 @@
 // For New Notebook
 const express = require("express");
 const sequelize = require("../instance/db");
-const cron = require('node-cron');
-const moment = require('moment-timezone');
+const cron = require("node-cron");
+const moment = require("moment-timezone");
 
 const router = express.Router();
 
-cron.schedule('1 7 * * *', async () => {
+cron.schedule(
+  "1 7 * * *",
+  async () => {
     let dateToday;
-    const hours = parseInt(moment().tz('Asia/Bangkok').format('HH'), 10);
+    const hours = parseInt(moment().tz("Asia/Bangkok").format("HH"), 10);
 
     if (hours <= 7) {
-        dateToday = moment().tz('Asia/Bangkok').subtract(1, "days").format("YYYY-MM-DD");
+      dateToday = moment()
+        .tz("Asia/Bangkok")
+        .subtract(1, "days")
+        .format("YYYY-MM-DD");
     } else {
-        dateToday = moment().tz('Asia/Bangkok').format("YYYY-MM-DD");
+      dateToday = moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
     }
 
-    await NewStatusGetDailyStatusReport(dateToday); // For All M/C 
-    console.log("NHT - FIM - New Running data status cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
-}, {
-    timezone: "Asia/Bangkok"
-});
+    await NewStatusGetDailyStatusReport(dateToday); // For All M/C
+    console.log(
+      "NHT - FIM - New Running data status cron job for date:",
+      dateToday,
+      hours,
+      moment().tz("Asia/Bangkok").format("YYYY-MM-DD HH:mm:ss")
+    );
+  },
+  {
+    timezone: "Asia/Bangkok",
+  }
+);
 
 const NewStatusGetDailyStatusReport = async (dateQuery) => {
-    let dateToday = dateQuery;
-    let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
-    console.log("NHT - FIM - Use date in NewStatusGetDailyStatusReport...", dateToday, dateTomorrow);
-    try {
-        let data = await sequelize.query(`
+  let dateToday = dateQuery;
+  let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
+  console.log(
+    "NHT - FIM - Use date in NewStatusGetDailyStatusReport...",
+    dateToday,
+    dateTomorrow
+  );
+  try {
+    let data = await sequelize.query(`
         DECLARE @start_date DATETIME = '${dateToday} 06:00:00';
         DECLARE @end_date DATETIME = '${dateTomorrow} 06:00:00';
         DECLARE @start_date_before DATETIME = DATEADD(HOUR, -1, @start_date);
@@ -62,8 +78,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             LAG(CAST([broker] AS FLOAT)) OVER (PARTITION BY [mc_no] ORDER BY [registered]) AS [broker_prv]
         INTO #TempMonitor
         FROM [data_machine_fim].[dbo].[MONITOR_IOT]
-        WHERE [registered] BETWEEN @start_date_before AND @end_date
-          AND mc_no LIKE 'fimma%';
+        WHERE [registered] BETWEEN @start_date_before AND @end_date;
 
         CREATE CLUSTERED INDEX IX_TempMonitor ON #TempMonitor(mc_no, registered);
         -------------------------------------------------------------------
@@ -173,7 +188,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
         SELECT
             work_date AS operation_day, 
             'true' AS is_operation_day, 
-            UPPER(process) AS process,
+            'FIM' AS process,
             CONCAT('LINE ', CAST(RIGHT([mc_no], 2) AS INT)) AS line_name,
             UPPER(mc_no) AS machine_name, 
             UPPER(mc_status) AS status_name,
@@ -187,15 +202,16 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             SUM(CASE WHEN shift = 'C' THEN 1 ELSE 0 END) AS shift3_count
         FROM calc
         GROUP BY mc_no, process, work_date, mc_status
-        ORDER BY operation_day, machine_name, status_name;`);
+        ORDER BY operation_day, machine_name, status_name;
+    `);
 
-        // console.log(data);
-        
-        // STEP INSERT DATA
-        if (data[0].length > 0) {
-            const result = data[0]
-            for (let index = 0; index < result.length; index++) {
-                await sequelize.query(`
+    // console.log(data);
+
+    // STEP INSERT DATA
+    if (data[0].length > 0) {
+      const result = data[0];
+      for (let index = 0; index < result.length; index++) {
+        await sequelize.query(`
                     INSERT INTO [NHT_DX_TO_PICO].[dbo].[FIM_DAILY_STATUS_REPORT] ([operation_day],[is_operation_day],[process],[line_name],[machine_name],[status_name],[daily_duration_s],[daily_count],[shift1_duration_s],[shift1_count],[shift2_duration_s],[shift2_count],[shift3_duration_s],[shift3_count],[registered_at])
                     SELECT
                         '${result[index].operation_day}',
@@ -224,47 +240,47 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
                                 AND [daily_duration_s] = ${result[index].daily_duration_s}
                                 AND [daily_count] = ${result[index].daily_count});
                 `);
-            }
-            console.log("NHT - FIM - Insert status new Done!");
-            return {
-                data: data[0],
-                success: true,
-                message: "Update data complete",
-            }
-        } else {
-            console.log("NHT - FIM - Can't new insert : Length = 0");
-        }
-    } catch (error) {
-        console.log("NHT - FIM - new status insert error:", error);
-        return {
-            data: error.message,
-            success: true,
-            message: "Can't update data",
-        }
+      }
+      console.log("NHT - FIM - Insert status new Done!");
+      return {
+        data: data[0],
+        success: true,
+        message: "Update data complete",
+      };
+    } else {
+      console.log("NHT - FIM - Can't new insert : Length = 0");
     }
-}
+  } catch (error) {
+    console.log("NHT - FIM - new status insert error:", error);
+    return {
+      data: error.message,
+      success: true,
+      message: "Can't update data",
+    };
+  }
+};
 
 const getDaily = async (dateToday) => {
-    const date = new Date(dateToday);
-    const year = date.getFullYear();
-    const month = date.getMonth(); // เดือนเริ่มจาก 0 (มกราคม = 0)
+  const date = new Date(dateToday);
+  const year = date.getFullYear();
+  const month = date.getMonth(); // เดือนเริ่มจาก 0 (มกราคม = 0)
 
-    // หาวันสุดท้ายของเดือนนี้
-    const lastDay = new Date(year, month + 1, 0).getDate();
+  // หาวันสุดท้ายของเดือนนี้
+  const lastDay = new Date(year, month + 1, 0).getDate();
 
-    // วนลูปทุกวันในเดือนนี้
-    for (let day = 0; day <= lastDay; day++) {
-        // สร้างวันที่ในรูปแบบ 'YYYY-MM-DD'
-        const currentDate = new Date(year, month, day);
-        const formatted = currentDate.toISOString().split('T')[0];
-        console.log(formatted);
-        await NewStatusGetDailyStatusReport(formatted);
-        console.log("ok");
-    }
-}
- 
+  // วนลูปทุกวันในเดือนนี้
+  for (let day = 0; day <= lastDay; day++) {
+    // สร้างวันที่ในรูปแบบ 'YYYY-MM-DD'
+    const currentDate = new Date(year, month, day);
+    const formatted = currentDate.toISOString().split("T")[0];
+    console.log(formatted);
+    await NewStatusGetDailyStatusReport(formatted);
+    console.log("ok");
+  }
+};
+
 // เรียกใช้
-// getDaily('2025-09-01'); 
-// NewStatusGetDailyStatusReport('2026-06-13');
+// getDaily('2025-09-01');
+// NewStatusGetDailyStatusReport('2026-06-18');
 
 module.exports = router;
