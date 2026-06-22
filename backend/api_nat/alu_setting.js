@@ -36,7 +36,7 @@ const getDailySettingReport = async () => {
                     b.[target_ct] * 1000 AS [ct],
                     ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
                 FROM [nat_mc_assy_alu].[dbo].[DATA_PRODUCTION_ALU] a
-				LEFT JOIN [nat_mc_assy_alu].[dbo].[DATA_MASTER_ALU] b ON a.mc_no = b.mc_no
+				        LEFT JOIN [nat_mc_assy_alu].[dbo].[DATA_MASTER_ALU] b ON a.mc_no = b.mc_no
             )
             SELECT * FROM [rn]
             where rn = 1
