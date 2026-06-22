@@ -25,55 +25,32 @@ cron.schedule('5 7 * * *', async () => {
 const getDailySettingReport = async () => {
     try {
         let data = await dbNAT.query(`
-            WITH [rnr] AS (
-                SELECT DISTINCT
-                    UPPER(a.[mc_no]) AS [mc_no],
-                    UPPER(a.[process]) AS [process],
-                    5 AS [mc_order],
-                    '6:00:00' AS [shift_start],
-                    b.[ring_factor] AS [count_f],
-                    b.[target_ct] * 1000 AS [ct],
-                    ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
-                FROM [nat_mc_assy_ant_new].[dbo].[DATA_PRODUCTION_ANT] a
-				        LEFT JOIN [nat_mc_assy_ant_new].[dbo].[DATA_MASTER_ANT] b ON a.mc_no = b.mc_no
-            ),
-			      [rnf] AS (
-                SELECT DISTINCT
-                    UPPER(a.[mc_no]) AS [mc_no],
-                    UPPER(a.[process]) AS [process],
-                    5 AS [mc_order],
-                    '6:00:00' AS [shift_start],
-                    b.[ring_factor] AS [count_f],
-                    b.[target_ct] * 1000 AS [ct],
-                    ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
-                FROM [nat_mc_assy_ant_new].[dbo].[DATA_PRODUCTION_ANT] a
-				    LEFT JOIN [nat_mc_assy_ant_new].[dbo].[DATA_MASTER_ANT] b ON a.mc_no = b.mc_no
-            ),
-            [merge] AS (
+            WITH [merge] AS (
               SELECT
                 LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), CONVERT(INT, RIGHT([mc_no], 2)) + (CONVERT(INT, RIGHT([mc_no], 2)) - 1)),2) AS [mc_no],
-                [process],
-                [mc_order],
-                [shift_start],
-                [count_f],
-                [ct]
-              FROM [rnr]
-              where rn = 1
+                [process]
+              FROM [nat_mc_assy_ant_new].[dbo].[DATA_PRODUCTION_ANT]
               UNION
               SELECT
                 LEFT([mc_no], 3) + RIGHT('0' + CONVERT(VARCHAR(10), (CONVERT(INT, RIGHT([mc_no], 2)) * 2)),2) AS [mc_no],
-                [process],
-                [mc_order],
-                [shift_start],
-                [count_f],
-                [ct]
-              FROM [rnf]
-              where rn = 1
+                [process]
+              FROM [nat_mc_assy_ant_new].[dbo].[DATA_PRODUCTION_ANT]
+            ),
+			      [rn] AS (
+                SELECT DISTINCT
+                    UPPER(a.[mc_no]) AS [mc_no],
+                    UPPER(a.[process]) AS [process],
+					          CONCAT('LINE ', CAST(RIGHT(a.[mc_no],2) AS INT)) AS [line_no],
+                    5 AS [mc_order],
+                    '6:00:00' AS [shift_start],
+                    b.[ring_factor] AS [count_f],
+                    b.[target_ct] * 1000 AS [ct],
+                    ROW_NUMBER() OVER (PARTITION BY a.[mc_no] ORDER BY b.[registered] DESC) AS rn
+                FROM [merge] a
+				        LEFT JOIN [nat_mc_assy_ant_new].[dbo].[DATA_MASTER_ANT] b ON a.mc_no = b.mc_no
             )
-            SELECT 
-                *,
-                CONCAT('LINE ', CAST(RIGHT([mc_no],2) AS INT)) AS [line_no]
-            FROM [merge]
+            SELECT * FROM [rn]
+		      	WHERE rn = 1
             ORDER BY [mc_no]
         `)
            
