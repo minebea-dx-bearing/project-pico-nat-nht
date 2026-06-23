@@ -284,243 +284,195 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
         let dataIR = await dbNAT.query(`
             DECLARE @start_date DATETIME = '${dateToday} 07:00:00';
             DECLARE @end_date DATETIME = '${dateTomorrow} 07:00:00';
-
-            -- ดึง status ก่อน-หลัง 1hr
             DECLARE @start_date_before DATETIME = DATEADD(HOUR, -1, @start_date);
+            DECLARE @end_min_check_status DATETIME = DATEADD(MINUTE, 1, @start_date);
 
-            DECLARE @end_min_check_status DATETIME = DATEADD(MINUTE, 1, @start_date); -- เอาไว้เช็ค monitor iot ตอน 7 โมงเพราะมันไม่ได้ insert 07:00:00:000 เป๊ะ
+            DECLARE @shift1 VARCHAR(8) = '07:00:00';
+            DECLARE @shift2 VARCHAR(8) = '19:00:00';
+            DECLARE @split_shift DATETIME = DATEADD(HOUR, 19, CAST(CAST(@start_date AS DATE) AS DATETIME));
+            DECLARE @process VARCHAR(8) = '2GD';
 
-            DECLARE @shift1 NVARCHAR(50) = '07:00:00';
-            DECLARE @shift2 NVARCHAR(50) = '19:00:00'; -- เขียนแบบนี้เพราะใช้ between check
+            -------------------------------------------------------------------
+            -- STEP 1: กวาดข้อมูลจากตารางหลักมาลง Temp Table (ใส่ COLLATE ป้องกัน Error)
+            -------------------------------------------------------------------
+            IF OBJECT_ID('tempdb..#TempStatus') IS NOT NULL DROP TABLE #TempStatus;
+            SELECT 
+                [mc_no] COLLATE DATABASE_DEFAULT AS [mc_no], 
+                [process] COLLATE DATABASE_DEFAULT AS [process], 
+                [occurred],
+                CASE WHEN DATEPART(HOUR, [occurred]) < 7 THEN CONVERT(date, DATEADD(DAY, -1, [occurred])) ELSE CONVERT(date, [occurred]) END AS [work_date],
+                [mc_status] COLLATE DATABASE_DEFAULT AS [mc_status], 
+                [occurred] AS [occurred_start]
+            INTO #TempStatus
+            FROM [nat_mc_mcshop_2gd].[dbo].[DATA_MCSTATUS_2GD]
+            WHERE [occurred] >= DATEADD(DAY, -1, @start_date) AND [occurred] <= @end_date AND mc_no like 'IR%';
 
-            WITH [status] AS (
-                SELECT 
-                    [mc_no],
-                    [process],
-                    [occurred],
-                    CASE WHEN DATEPART(HOUR, [occurred]) < 7 THEN CONVERT(date, DATEADD(DAY, -1, [occurred]))
-                        ELSE CONVERT(date, [occurred])
-                    END AS [work_date],
-                    [mc_status],
-                    [occurred] AS [occurred_start]
-                FROM [nat_mc_mcshop_2gd].[dbo].[DATA_MCSTATUS_2GD]
-                WHERE registered BETWEEN @start_date and @end_date AND mc_no like 'IR%'
-            ),
-            [all_mc] AS (
-                SELECT DISTINCT [mc_no]
-                FROM [nat_mc_mcshop_2gd].[dbo].[DATA_MASTER_2GD]
-            ),
-            [monitor_iot] AS (
-                SELECT
-                    [mc_no],
-                    [process],
-                    CASE WHEN DATEPART(HOUR, [registered]) < 7 THEN CONVERT(date, DATEADD(DAY, -1, [registered]))
-                        ELSE CONVERT(date, [registered])
-                    END AS [work_date],
-                    [registered],
-                    CAST([broker] AS FLOAT) AS [broker],
-                    LAG(CAST([broker] AS FLOAT)) OVER (PARTITION BY [mc_no] ORDER BY [registered]) AS [broker_prv]
-                FROM [nat_mc_mcshop_2gd].[dbo].[MONITOR_IOT]
-                WHERE registered BETWEEN @start_date_before and @end_date AND mc_no like 'IR%'
-            ),
-            [first_status] AS (
-                -- เอา status สุดท้ายก่อนที่จะถึง @start_date มา
-                SELECT 
-                    [mc_no],
-                    [process],
-                    CONVERT(date, [occurred]) AS [work_date],
-                    [mc_status],
-                    CAST(CAST(@start_date AS DATE) AS DATETIME) AS [occurred_start],
-                    ROW_NUMBER() OVER (PARTITION BY [mc_no] ORDER BY occurred desc) as rn
-                FROM [nat_mc_mcshop_2gd].[dbo].[DATA_MCSTATUS_2GD]
-                where [occurred] < @start_date and [occurred] >= DATEADD(DAY, -1, @start_date) AND mc_no like 'IR%'
-            ),
-            [merge_status] AS (
-                -- เพิ่ม connection loss เข้ามาโดยเช็ค broker จาก monitor_iot
-                SELECT 
-                    [mc_no],
-                    [process],
-                    [work_date],
-                    [mc_status],
-                    [occurred_start]
-                FROM [status]
-                UNION ALL
-                SELECT 
-                    [mc_no],
-                    [process],
-                    [work_date],
-                    'connection lost' AS [mc_status],
-                    [registered] AS [occurred_start]
-                FROM [monitor_iot]
-                WHERE ([broker_prv] = 1 AND [broker] = 0 AND [registered] BETWEEN @start_date AND @end_date) 
-                OR ([registered] BETWEEN @start_date AND @end_min_check_status AND [broker_prv] = 0 AND [broker] = 0)
-                -- ถ้า broker = 0 ก่อน 7 โมงก็ให้เพิ่ม connection loss ด้วย
-                UNION ALL
-                -- เพิ่ม connection lost สำหรับเครื่องที่ไม่มี status ส่งมาเลย
-                SELECT 
-                    a.[mc_no],
-                    '2gd' AS [process],
-                    CAST(@start_date AS DATE) AS [work_date],
-                    'connection lost' AS [mc_status],
-                    @start_date AS [occurred_start]
-                FROM [all_mc] a
-                WHERE NOT EXISTS(SELECT 1 FROM [status] s WHERE s.[mc_no] = a.[mc_no])
-                UNION ALL
+            CREATE CLUSTERED INDEX IX_TempStatus ON #TempStatus(mc_no, occurred_start);
+
+            IF OBJECT_ID('tempdb..#TempMonitor') IS NOT NULL DROP TABLE #TempMonitor;
+            SELECT
+                [mc_no] COLLATE DATABASE_DEFAULT AS [mc_no], 
+                [process] COLLATE DATABASE_DEFAULT AS [process],
+                CASE WHEN DATEPART(HOUR, [registered]) < 7 THEN CONVERT(date, DATEADD(DAY, -1, [registered])) ELSE CONVERT(date, [registered]) END AS [work_date],
+                [registered], CAST([broker] AS FLOAT) AS [broker],
+                LAG(CAST([broker] AS FLOAT)) OVER (PARTITION BY [mc_no] ORDER BY [registered]) AS [broker_prv]
+            INTO #TempMonitor
+            FROM [nat_mc_mcshop_2gd].[dbo].[MONITOR_IOT]
+            WHERE [registered] BETWEEN @start_date_before AND @end_date AND mc_no like 'IR%';
+
+            CREATE CLUSTERED INDEX IX_TempMonitor ON #TempMonitor(mc_no, registered);
+            -------------------------------------------------------------------
+            -- STEP 2: จับข้อมูลมา Merge กันทีละ Step (จัดลำดับใหม่เพื่อดึง Status ย้อนหลังให้ถูกต้อง)
+            -------------------------------------------------------------------
+            IF OBJECT_ID('tempdb..#TempMerge') IS NOT NULL DROP TABLE #TempMerge;
+            CREATE TABLE #TempMerge (
+                mc_no NVARCHAR(50) COLLATE DATABASE_DEFAULT, 
+                process NVARCHAR(50) COLLATE DATABASE_DEFAULT, 
+                work_date DATE, 
+                mc_status NVARCHAR(50) COLLATE DATABASE_DEFAULT, 
+                occurred_start DATETIME
+            );
+
+            -- 2.1 เอา Status ปกติในช่วงเวลาของวันนี้ใส่ลงไป
+            INSERT INTO #TempMerge (mc_no, process, work_date, mc_status, occurred_start)
+            SELECT mc_no, process, work_date, mc_status, occurred_start
+            FROM #TempStatus WHERE occurred_start BETWEEN @start_date AND @end_date;
+
+            -- 2.2 แทรก Connection Lost จาก IOT (กรณีกล่องส่ง 0)
+            INSERT INTO #TempMerge (mc_no, process, work_date, mc_status, occurred_start)
+            SELECT mc_no, process, work_date, 'connection lost', registered
+            FROM #TempMonitor
+            WHERE (broker_prv = 1 AND broker = 0 AND registered BETWEEN @start_date AND @end_date)
+            OR (registered BETWEEN @start_date AND @end_min_check_status AND broker_prv = 0 AND broker = 0);
+
+            -- 2.3 แทรก Recovery (กรณีกล่องกลับมาส่ง 1 แต่ไม่มี Status)
+            INSERT INTO #TempMerge (mc_no, process, work_date, mc_status, occurred_start)
+            SELECT 
+                m.mc_no, m.process, m.work_date,
                 -- เมื่อกล่องเปลี่ยนจาก 0 เป็น 1 แต่ไม่มี status ส่งมาในรอบ +- 5 นาที ให้ดึง status ล่าสุดก่อนหน้านั้นมาใส่
-                SELECT 
-                    m.[mc_no],
-                    m.[process],
-                    m.[work_date], 
-                    CASE WHEN NOT EXISTS (
-                            SELECT 1 FROM [nat_mc_mcshop_2gd].[dbo].[DATA_MCSTATUS_2GD] s
-                            WHERE s.[mc_no] = m.[mc_no]
-                            AND (s.[occurred] > m.[registered] OR s.[occurred] BETWEEN DATEADD(MINUTE, -5, m.[registered]) AND DATEADD(MINUTE, 5, m.[registered]))
-                            AND s.[occurred] <= @end_date AND mc_no like 'IR%'
-                        ) THEN 'connection lost' --ถ้าหลังจาก broker กลับมาเป็น 1 แต่ไม่มี status ส่งมาเลย ให้เป็น connection lost
-                        ELSE ISNULL(last_s.[mc_status], 'connection lost')
-                    END AS [mc_status],
-                    m.[registered] AS [occurred_start]
-                FROM [monitor_iot] m
-                OUTER APPLY (
-                    SELECT TOP 1 
-                        s.[mc_status],
-                        MAX(CASE WHEN s.[occurred] BETWEEN DATEADD(MINUTE, -5, m.[registered]) AND DATEADD(MINUTE, 5, m.[registered]) THEN 1 ELSE 0 END) OVER() as has_current_status
-                    FROM [nat_mc_mcshop_2gd].[dbo].[DATA_MCSTATUS_2GD] s
-                    WHERE s.[mc_no] = m.[mc_no]
-                    AND s.[occurred] <= DATEADD(MINUTE, 5, m.[registered])
-                    AND s.[occurred] >= DATEADD(DAY, -1, m.[registered])  --ดึงข้อมูลเก่าล่าสุดมาโดยไม่เกิน 1 วันก่อนหน้า 
-                    ORDER BY s.[occurred] DESC
-                ) last_s
-                WHERE m.[broker_prv] = 0 AND m.[broker] = 1
-                AND m.[registered] BETWEEN @start_date AND @end_date
-                AND (last_s.has_current_status IS NULL OR last_s.has_current_status = 0)
-                AND mc_no like 'IR%'
-            ),
-            [first_merge_status] AS (
-                -- เอาตัวแรกของ status จาก [merge_status]
-                SELECT 
-                    [mc_no],
-                    [process],
-                    [work_date],
-                    [mc_status],
-                    [occurred_start],
-                    ROW_NUMBER() OVER (PARTITION BY [mc_no] ORDER BY [occurred_start]) as rn
-                FROM [merge_status]
-            ),
-            [merge_all] AS (
-                -- เอา [first_status] มาใส่เมื่อตั้วแรกที่ดึงจาก [first_merge_status] ไม่ใช่ connection lost และต้องเช็คให้เป็น m/c เครื่องเดียวกัน
-                SELECT * FROM [merge_status]
-                UNION ALL
-                SELECT 
-                    [mc_no],
-                    [process],
-                    [work_date],
-                    [mc_status],
-                    [occurred_start]
-                FROM [first_status] s
-                WHERE s.rn = 1 
-                AND EXISTS (
-                    SELECT 1 FROM [first_merge_status] m
-                    WHERE m.[mc_no] = s.[mc_no] 
-                    AND m.rn = 1 
-                    AND NOT (
-                        m.[mc_status] = 'connection lost' 
-                        AND m.[occurred_start] BETWEEN @start_date AND @end_min_check_status)
-                )
-                --order by mc_no, occurred_start
-            ),
-            [set_occurred] AS (
-                -- เอา [occurred_start] ของ status ต่อไปมาเป็น [occurred_end] ของ status ปัจุบัน
-                SELECT 
-                    *,
-                    LEAD([occurred_start]) OVER (PARTITION BY [mc_no] ORDER BY [occurred_start]) AS [occurred_end]
-                FROM [merge_all]
+                CASE 
+                    WHEN NOT EXISTS (
+                        SELECT 1 FROM #TempStatus s
+                        WHERE s.mc_no = m.mc_no
+                        AND (s.occurred_start > m.registered OR s.occurred_start BETWEEN DATEADD(MINUTE, -5, m.registered) AND DATEADD(MINUTE, 5, m.registered))
+                        AND s.occurred_start <= @end_date
+                    ) THEN 'connection lost' --ถ้าหลังจาก broker กลับมาเป็น 1 แต่ไม่มี status ส่งมาเลย ให้เป็น connection lost
+                    ELSE ISNULL(last_s.mc_status, 'connection lost')
+                END AS mc_status,
+                m.registered
+            FROM #TempMonitor m
+            OUTER APPLY (
+                SELECT TOP 1 
+                    s.mc_status,
+                    -- แตกตัวเช็กแยกต่างหากว่า ตัวล่าสุดที่เจอตัวนี้ อยู่ในพิกัด +- 5 นาทีหรือไม่
+                    IIF(s.occurred_start BETWEEN DATEADD(MINUTE, -5, m.registered) AND DATEADD(MINUTE, 5, m.registered), 1, 0) AS is_near
+                FROM #TempStatus s
+                WHERE s.mc_no = m.mc_no 
+                AND s.occurred_start <= DATEADD(MINUTE, 5, m.registered)
+                -- ดึงข้อมูลเก่าล่าสุดย้อนหลังได้ 1 วันเต็ม (ข้อมูลถูกเตรียมไว้ใน #TempStatus ตั้งแต่แรกแล้ว)
+                AND s.occurred_start >= DATEADD(DAY, -1, m.registered) 
+                ORDER BY s.occurred_start DESC
+            ) last_s
+            WHERE m.broker_prv = 0 AND m.broker = 1 
+            AND m.registered BETWEEN @start_date AND @end_date
+            AND (last_s.is_near IS NULL OR last_s.is_near = 0);
+
+            -- 2.4 แทรก First Status (ดึงตัวล่าสุดที่ค้างอยู่จาก 7 วันก่อนหน้า มาเป็นเวลาเริ่มกะ)
+            WITH [first_status] AS (
+                SELECT mc_no, process, CONVERT(date, occurred_start) AS work_date, mc_status, CAST(CAST(@start_date AS DATE) AS DATETIME) AS occurred_start,
+                    ROW_NUMBER() OVER (PARTITION BY mc_no ORDER BY occurred_start DESC) as rn
+                FROM #TempStatus 
+                WHERE occurred_start < @start_date AND occurred_start >= DATEADD(DAY, -1, @start_date)
+            )
+            INSERT INTO #TempMerge (mc_no, process, work_date, mc_status, occurred_start)
+            SELECT f.mc_no, f.process, f.work_date, f.mc_status, f.occurred_start
+            FROM [first_status] f
+            WHERE f.rn = 1 
+            -- เช็คเพื่อความชัวร์ว่า: IoT ไม่ได้แจ้งเตือนว่ากล่องดับ 0 ตั้งแต่เปิดกะ (ถ้ายืนยันว่าดับจริง จะไม่เอาอดีตมาทับ)
+            AND NOT EXISTS (
+                SELECT 1 FROM #TempMerge m 
+                WHERE m.mc_no = f.mc_no 
+                    AND m.mc_status = 'connection lost' 
+                    AND m.occurred_start BETWEEN @start_date AND @end_min_check_status
+            );
+
+            -- 2.5 แทรก Connection Lost สำหรับเครื่องที่ "หายสาบสูญ" จริงๆ
+            -- (คือวันนี้ไม่มี Log อะไรเลย, และย้อนหลังไป 7 วัน ก็ไม่มี Log เหลืออยู่เลย)
+            INSERT INTO #TempMerge (mc_no, process, work_date, mc_status, occurred_start)
+            SELECT a.mc_no, @process, CAST(@start_date AS DATE), 'connection lost', @start_date
+            FROM (SELECT DISTINCT mc_no COLLATE DATABASE_DEFAULT AS mc_no FROM [nat_mc_mcshop_2gd].[dbo].[DATA_PRODUCTION_2GD] WHERE registered >= DATEADD(DAY, -1, @start_date) AND mc_no like 'IR%') a
+            WHERE NOT EXISTS (
+                -- เช็คจากกระบะทรายเลยว่าเครื่องนี้มี Status (ไม่ว่าจะของวันนี้หรืออดีต 7 วัน) ติดมาบ้างไหม ถ้าไม่มีเลยค่อยฟ้อง lost
+                SELECT 1 FROM #TempMerge m 
+                WHERE m.mc_no = a.mc_no
+            );
+
+            -------------------------------------------------------------------
+            -- STEP 3: ประมวลผลขั้นสุดท้าย (คำนวณวินาที และกรุ๊ปปิ้ง)
+            -------------------------------------------------------------------
+            WITH [set_occurred] AS (
+                SELECT *, LEAD(occurred_start) OVER (PARTITION BY mc_no ORDER BY occurred_start) AS occurred_end
+                FROM #TempMerge
             ),
             [set_time] AS (
-                -- set เวลา status แรกให้เป็นตาม @start_date และ status สุดท้ายให้เป็นตาม @end_date
+                SELECT mc_no, process, CAST(@start_date AS DATE) AS work_date, mc_status,
+                    CASE WHEN (occurred_start < @start_date) OR (mc_status = 'connection lost' AND occurred_start BETWEEN @start_date AND @end_min_check_status) THEN @start_date ELSE occurred_start END AS occurred_start,
+                    CASE WHEN (occurred_end IS NULL AND occurred_start BETWEEN @start_date AND @end_min_check_status) OR (occurred_end IS NULL) THEN @end_date ELSE occurred_end END AS occurred_end
+                FROM [set_occurred]
+                WHERE (occurred_end > @start_date AND occurred_start < @end_date) OR mc_status = 'connection lost' OR occurred_end IS NULL
+            ),
+            [set_cl] AS (
+                -- ถ้า [occurred_start] ไม่ได้เท่ากับ @start_date ก็ให้ทำเป็น connection lost
+                SELECT * FROM [set_time]
+                UNION ALL
                 SELECT
                     [mc_no],
                     [process],
-                    CAST(@start_date AS DATE) AS [work_date],
-                    [mc_status],
-                    CASE 
-                        WHEN ([occurred_start] < @start_date)
-                            OR [mc_status] = 'connection lost' AND [occurred_start] BETWEEN @start_date AND @end_min_check_status
-                        THEN @start_date
-                        ELSE [occurred_start]
-                    END AS [occurred_start],
-                    CASE 
-                        WHEN ([occurred_end] IS NULL AND [occurred_start] BETWEEN @start_date AND @end_min_check_status)
-                            OR ([occurred_end] IS NULL)
-                        THEN @end_date
-                        ELSE [occurred_end]
-                    END AS [occurred_end]
-                FROM [set_occurred]
-                WHERE ([occurred_end] > @start_date AND [occurred_start] < @end_date) OR [mc_status] = 'connection lost' OR [occurred_end] IS NULL
+                    [work_date],
+                    'connection lost' AS [mc_status],
+                    @start_date AS [occurred_start],
+                    MIN([occurred_start]) AS [occurred_end]
+                FROM [set_time]
+                GROUP BY [mc_no], [process], [work_date]
+                HAVING MIN([occurred_start]) > @start_date
             ),
             [shift] AS (
-                SELECT
-                    *,
-                    CASE WHEN CONVERT(TIME, [occurred_start]) BETWEEN @shift1 AND @shift2 THEN 'M'
-                        ELSE 'N'
-                    END AS [shift],
-                    DATEADD(HOUR, 19, CAST(CAST([occurred_start] AS DATE) AS DATETIME)) AS [split_shift]
-                FROM [set_time]
+                SELECT *,
+                    CASE WHEN CONVERT(TIME, occurred_start) BETWEEN @shift1 AND @shift2 THEN 'M' ELSE 'N' END AS [shift],
+                    @split_shift AS split_shift
+                FROM [set_cl]
             ),
             [split_shift] AS (
-                -- แยก status ที่เกิดคร่อมเวลากะ(1 ทุ่ม) ออกเป็น 2 อันให้จบที่ 19:00 และเริ่มที่ 19:00
-                SELECT 
-                    s.[mc_no], 
-                    s.[process], 
-                    s.[work_date], 
-                    s.[mc_status],
-                    v.[occurred_start], 
-                    v.[occurred_end], 
-                    v.[shift]
+                SELECT s.mc_no, s.process, s.work_date, s.mc_status, v.occurred_start, v.occurred_end, v.shift
                 FROM [shift] s
                 CROSS APPLY (
-                    -- เคสที่ 1: ข้อมูลไม่คร่อม 1 ทุ่ม (อยู่ก่อน หรือ อยู่หลัง ไปเลย)
-                    SELECT s.[occurred_start], s.[occurred_end], s.[shift]
-                    WHERE s.[occurred_start] >= s.[split_shift] OR s.[occurred_end] <= s.[split_shift]
-                    UNION ALL
-                    -- เคสที่ 2: ข้อมูลคร่อม 1 ทุ่ม (ท่อนแรก: ก่อน 1 ทุ่ม)
-                    SELECT s.[occurred_start], s.[split_shift], s.[shift]
-                    WHERE s.[split_shift] BETWEEN s.[occurred_start] AND s.[occurred_end] AND s.[occurred_start] < s.[split_shift] AND s.[occurred_end] > s.[split_shift]
-                    UNION ALL
-                    -- เคสที่ 3: ข้อมูลคร่อม 1 ทุ่ม (ท่อนสอง: หลัง 1 ทุ่มเปลี่ยนเป็นกะ N)
-                    SELECT s.[split_shift], s.[occurred_end], 'N'
-                    WHERE s.[split_shift] BETWEEN s.[occurred_start] AND s.[occurred_end] AND s.[occurred_start] < s.[split_shift] AND s.[occurred_end] > s.[split_shift]
+                    SELECT s.occurred_start, s.occurred_end, s.shift WHERE s.occurred_start >= s.split_shift OR s.occurred_end <= s.split_shift
+                    UNION ALL SELECT s.occurred_start, s.split_shift, s.shift WHERE s.split_shift > s.occurred_start AND s.split_shift < s.occurred_end
+                    UNION ALL SELECT s.split_shift, s.occurred_end, 'N' WHERE s.split_shift > s.occurred_start AND s.split_shift < s.occurred_end
                 ) v
             ),
             [calc] AS (
-                SELECT 
-                    *,
-                    DATEDIFF(SECOND, [occurred_start], [occurred_end]) AS [diff_sec]
-                FROM [split_shift]
+                SELECT *, DATEDIFF(SECOND, occurred_start, occurred_end) AS diff_sec FROM [split_shift]
+                --order by mc_no, occurred_start
             )
-                SELECT
-                    [work_date] AS [operation_day]
-                    ,'true' AS [is_operation_day]
-                    ,UPPER([process]) AS [process]
-                    ,CONCAT('LINE ', CAST(LEFT(RIGHT([mc_no],3),2) AS INT)) AS line_name
-                    ,UPPER([mc_no]) AS [machine_name]
-                    ,UPPER([mc_status]) AS [status_name]
-                    ,SUM([diff_sec]) AS [daily_duration_s]
-                    ,COUNT([mc_status]) AS [daily_count]
-                    ,SUM(CASE WHEN [shift] = 'M' OR [shift] = 'A' THEN [diff_sec] ELSE 0 END) AS [shift1_duration_s]
-                    ,SUM(CASE WHEN [shift] = 'M' OR [shift] = 'A' THEN 1 ELSE 0 END) AS [shift1_count]
-                    ,SUM(CASE WHEN [shift] = 'N' OR [shift] = 'B' THEN [diff_sec] ELSE 0 END) AS [shift2_duration_s]
-                    ,SUM(CASE WHEN [shift] = 'N' OR [shift] = 'B' THEN 1 ELSE 0 END) AS [shift2_count]
-                    ,SUM(CASE WHEN [shift] = 'C' THEN [diff_sec] ELSE 0 END) AS [shift3_duration_s]
-                    ,SUM(CASE WHEN [shift] = 'C' THEN 1 ELSE 0 END) AS [shift3_count]
-                FROM [calc]
-                WHERE mc_no like 'IR%'
-                GROUP BY
-                    [mc_no]
-                    ,[process]
-                    ,[work_date]
-                    ,[mc_status]
-                ORDER BY [operation_day], [machine_name], [status_name]
+            SELECT
+                work_date AS operation_day, 
+                'true' AS is_operation_day, 
+                @process AS process,
+                CONCAT('LINE ', CAST(LEFT(RIGHT([mc_no],3),2) AS INT)) AS line_name,
+                UPPER(mc_no) AS machine_name, 
+                UPPER(mc_status) AS status_name,
+                SUM(diff_sec) AS daily_duration_s, 
+                COUNT(mc_status) AS daily_count,
+                SUM(CASE WHEN shift IN ('M', 'A') THEN diff_sec ELSE 0 END) AS shift1_duration_s, 
+                SUM(CASE WHEN shift IN ('M', 'A') THEN 1 ELSE 0 END) AS shift1_count,
+                SUM(CASE WHEN shift IN ('N', 'B') THEN diff_sec ELSE 0 END) AS shift2_duration_s, 
+                SUM(CASE WHEN shift IN ('N', 'B') THEN 1 ELSE 0 END) AS shift2_count,
+                SUM(CASE WHEN shift = 'C' THEN diff_sec ELSE 0 END) AS shift3_duration_s, 
+                SUM(CASE WHEN shift = 'C' THEN 1 ELSE 0 END) AS shift3_count
+            FROM calc
+            GROUP BY mc_no, process, work_date, mc_status
+            ORDER BY [operation_day], [machine_name], [status_name]
         `);
         // console.log(dataOR, dataIR)
         let data = [...dataOR[0], ...dataIR[0]]
