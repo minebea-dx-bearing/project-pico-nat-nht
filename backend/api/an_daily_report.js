@@ -58,7 +58,7 @@ const getDailyReport = async (dateQuery) => {
                         END AS [prod_total_diff]
                     FROM ' + @Database + '
                     WHERE [registered] BETWEEN ''${dateToday} 06:00'' AND ''${dateTomorrow} 07:00''
-                    AND [mc_no] LIKE ''WANTMA%''
+                    --AND [mc_no] LIKE ''WANTMA%''
                 ),
                 [calc_shift] AS (
                     SELECT

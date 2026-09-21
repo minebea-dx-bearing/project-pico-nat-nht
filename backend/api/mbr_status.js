@@ -51,7 +51,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
             [occurred] AS [occurred_start]
         INTO #TempStatus
         FROM [data_machine_assy1].[dbo].[DATA_MCSTATUS_ASSY]
-        WHERE [occurred] >= DATEADD(DAY, -1, @start_date) AND [occurred] <= @end_date AND mc_no <> 'mbrma13';
+        WHERE [occurred] >= DATEADD(DAY, -1, @start_date) AND [occurred] <= @end_date;
 
         CREATE CLUSTERED INDEX IX_TempStatus ON #TempStatus(mc_no, occurred_start);
 
@@ -146,7 +146,7 @@ const NewStatusGetDailyStatusReport = async (dateQuery) => {
         -- (คือวันนี้ไม่มี Log อะไรเลย, และย้อนหลังไป 7 วัน ก็ไม่มี Log เหลืออยู่เลย)
         INSERT INTO #TempMerge (mc_no, process, work_date, mc_status, occurred_start)
         SELECT a.mc_no, @process, CAST(@start_date AS DATE), 'connection lost', @start_date
-        FROM (SELECT DISTINCT mc_no COLLATE DATABASE_DEFAULT AS mc_no FROM [data_machine_assy1].[dbo].[DATA_PRODUCTION_ASSY] WHERE registered >= DATEADD(DAY, -1, @start_date) AND mc_no <> 'mbrma13') a
+        FROM (SELECT DISTINCT mc_no COLLATE DATABASE_DEFAULT AS mc_no FROM [data_machine_assy1].[dbo].[DATA_PRODUCTION_ASSY] WHERE registered >= DATEADD(DAY, -1, @start_date)) a
         WHERE NOT EXISTS (
             -- เช็คจากกระบะทรายเลยว่าเครื่องนี้มี Status (ไม่ว่าจะของวันนี้หรืออดีต 7 วัน) ติดมาบ้างไหม ถ้าไม่มีเลยค่อยฟ้อง lost
             SELECT 1 FROM #TempMerge m 
