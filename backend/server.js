@@ -50,6 +50,11 @@ app.use("/api/tn_nat_setting", require("./api_nat/tn_setting"));
 app.use("/api/tn_nat_status", require("./api_nat/tn_status"));
 app.use("/api/tn_nat_daily_report", require("./api_nat/tn_daily_report"));
 
+// TM NAT
+app.use("/api/tm_nat_setting", require("./api_nat/tm_setting"));
+app.use("/api/tm_nat_status", require("./api_nat/tm_status"));
+app.use("/api/tm_nat_daily_report", require("./api_nat/tm_daily_report"));
+
 // GD2ND NAT
 app.use("/api/gd2nd_nat_setting", require("./api_nat/gd2nd_setting"));
 app.use("/api/gd2nd_nat_status", require("./api_nat/gd2nd_status"));

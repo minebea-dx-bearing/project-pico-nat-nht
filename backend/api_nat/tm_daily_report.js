@@ -19,7 +19,7 @@ cron.schedule('3 7 * * *', async () => {
     }
 
     await getDailyReport(dateToday);
-    console.log("NAT - TN - Running data reprod cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
+    console.log("NAT - TM - Running data reprod cron job for date:", dateToday, hours, moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
 }, {
     timezone: "Asia/Bangkok"
 });
@@ -27,7 +27,7 @@ cron.schedule('3 7 * * *', async () => {
 const getDailyReport = async (dateQuery) => {
     let dateToday = dateQuery;
     let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
-    console.log("NAT - TN - prod...", dateToday, dateTomorrow);
+    console.log("NAT - TM - prod...", dateToday, dateTomorrow);
 
     try {
         let data = await dbNAT.query(`
@@ -36,8 +36,8 @@ const getDailyReport = async (dateQuery) => {
             DECLARE @LineName NVARCHAR(MAX);
             DECLARE @SQL NVARCHAR(MAX);
 
-            SET @Columns = '[prod_pos4] + [prod_pos6]';
-            SET @Database = '[nat_mc_mcshop_tn].[dbo].[DATA_PRODUCTION_TN]';
+            SET @Columns = '[production]';
+            SET @Database = '[nat_mc_mcshop_tm].[dbo].[DATA_PRODUCTION_TM]';
             SET @LineName = 'CAST(RIGHT(s.[mc_no],2) AS INT)';
 
             -- อย่าลืมแก้เวลาตัดกะ
@@ -119,7 +119,7 @@ const getDailyReport = async (dateQuery) => {
             const result = data[0]
             for (let i = 0; i < result.length; i++) {
                 await sequelize.query(`
-                    INSERT INTO  [NAT_DX_TO_PICO].[dbo].[TN_DAILY_REPORT] (
+                    INSERT INTO  [NAT_DX_TO_PICO].[dbo].[TM_DAILY_REPORT] (
                         [operation_day], [is_operation_day], [process], [line_name], [machine_name],
                         [daily_target_production_qty], [daily_actual_production_qty], [shift1_actual_production_qty],
                         [shift1_target_production_qty], [shift2_actual_production_qty], [shift2_target_production_qty],
@@ -132,7 +132,7 @@ const getDailyReport = async (dateQuery) => {
                         ${result[i].shift3_actual_production_qty}, ${result[i].shift3_target_production_qty}, GETDATE()
                     WHERE NOT EXISTS (
                         SELECT 1
-                        FROM  [NAT_DX_TO_PICO].[dbo].[TN_DAILY_REPORT]
+                        FROM  [NAT_DX_TO_PICO].[dbo].[TM_DAILY_REPORT]
                         WHERE
                             [operation_day] = '${result[i].operation_day}'
                             AND [line_name] = '${result[i].line_name}'
@@ -149,7 +149,7 @@ const getDailyReport = async (dateQuery) => {
             }
         }
     } catch (error) {
-        console.log("NAT - TN - prod insert error:", error);
+        console.log("NAT - TM - prod insert error:", error);
         return {
             data: error.message,
             success: true,
