@@ -94,7 +94,7 @@ const getDailySettingReport = async () => {
                     Number(existing.target_cycle_time_ms) === Number(ct);
               
                   if (!isSame) {
-                    console.log("NAT - GSSM - !isSame", !isSame);
+                    console.log("NAT - TM - !isSame", !isSame);
                     
                     // ไม่เหมือนกัน → del แล้ว Insert ใหม่
                     await sequelize.query(
