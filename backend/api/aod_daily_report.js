@@ -28,7 +28,7 @@ const getDailyReport = async (dateQuery) => {
     let dateToday = dateQuery;
     let dateTomorrow = moment(dateToday).add(1, "days").format("YYYY-MM-DD");
     console.log("NHT - AOD - prod...", dateToday, dateTomorrow);
-
+    // ไม่ส่ง ตั้งแต่ AOD25 เพราะค่ายังส่งมาผิด รอ MM แก้ก่อนค่อยส่ง
     try {
         let data = await sequelize.query(`
             DECLARE @Columns NVARCHAR(MAX);
@@ -36,7 +36,7 @@ const getDailyReport = async (dateQuery) => {
             DECLARE @LineName NVARCHAR(MAX);
             DECLARE @SQL NVARCHAR(MAX);
 
-            SET @Columns = '[prod_cnt_qty]';
+            SET @Columns = '[total_prod]';
             SET @Database = '[data_machine_aod].[dbo].[DATA_PRODUCTION_AOD]';
             SET @LineName = 'CAST(RIGHT(s.[mc_no],2) AS INT)';
 
@@ -58,6 +58,7 @@ const getDailyReport = async (dateQuery) => {
                         END AS [prod_total_diff]
                     FROM ' + @Database + '
                     WHERE [registered] BETWEEN ''${dateToday} 06:00'' AND ''${dateTomorrow} 07:00''
+                    AND mc_no < ''AOD25''
                 ),
                 [calc_shift] AS (
                     SELECT
@@ -158,5 +159,6 @@ const getDailyReport = async (dateQuery) => {
         }
     }
 }
+
 
 module.exports = router;
